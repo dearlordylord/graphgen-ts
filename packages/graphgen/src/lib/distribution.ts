@@ -1,7 +1,7 @@
 import { State as RngState } from 'seedrandom';
 import { PositiveInteger, prismPositiveInteger } from 'newtype-ts/lib/PositiveInteger';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
-import { constant, flow, pipe } from 'fp-ts/function';
+import { apply, constant, flow, pipe } from 'fp-ts/function';
 import * as RA from 'fp-ts/ReadonlyArray';
 import * as NEA from 'fp-ts/NonEmptyArray';
 import { range } from 'fp-ts/NonEmptyArray';
@@ -22,6 +22,10 @@ import { castIndex } from '@firfi/utils/list/prisms';
 import { castDecimal1n, prismDecimal1n } from '@firfi/utils/number/decimal1n/prism';
 import { mapDiscreet } from './dnd';
 import { random } from '@firfi/utils/rng/random';
+import { Semigroup } from 'fp-ts/Semigroup';
+import { Eq } from 'fp-ts/Eq';
+import { curry2 } from 'fp-ts-std/Function';
+import { not } from 'fp-ts/Predicate';
 
 type AdvantageOrDisadvantage = 'advantage' | 'disadvantage';
 
@@ -67,6 +71,47 @@ type NodeIndex = Index;
 
 type DegreeFunction = (node: NodeIndex) => NonNegativeInteger;
 
+const addPositiveIntegers = (a: PositiveInteger, b: PositiveInteger): PositiveInteger =>
+  castPositiveInteger(prismPositiveInteger.reverseGet(a) + prismPositiveInteger.reverseGet(b));
+
+const semigroupSumPositiveIntegers: Semigroup<PositiveInteger> = {
+  concat: addPositiveIntegers,
+};
+
+const addNonNegativeIntegers = (a: NonNegativeInteger, b: NonNegativeInteger): NonNegativeInteger =>
+  castNonNegativeInteger(prismNonNegativeInteger.reverseGet(a) + prismNonNegativeInteger.reverseGet(b));
+
+const semigroupSumNonNegativeIntegers: Semigroup<NonNegativeInteger> = {
+  concat: addNonNegativeIntegers
+}
+
+const dropPositiveIntegerToNonNegativeInteger = (n: PositiveInteger): NonNegativeInteger =>
+  castNonNegativeInteger(prismPositiveInteger.reverseGet(n));
+
+const nonNegativeIntegerEq: Eq<NonNegativeInteger> = {
+  equals: (a, b) => prismNonNegativeInteger.reverseGet(a) === prismNonNegativeInteger.reverseGet(b),
+}
+
+const positiveIntegerEq: Eq<PositiveInteger> = {
+  equals: (a, b) => prismPositiveInteger.reverseGet(a) === prismPositiveInteger.reverseGet(b),
+};
+
+const assertDenormalizedProbabilitiesTotal = (denormalizedProbabilitiesTotal: PositiveInteger, totalEdges: NonNegativeInteger, totalNodesFairnessModificator: NonNegativeInteger) => {
+  if (
+    pipe(
+      nonNegativeIntegerEq.equals,
+      curry2,
+      apply(dropPositiveIntegerToNonNegativeInteger(denormalizedProbabilitiesTotal)),
+      not,
+      apply(addNonNegativeIntegers(totalEdges, totalNodesFairnessModificator))
+    )
+  ) {
+    throw new Error(
+      `panic! denormalizedProbabilitiesTotal_ !== sumOfDegrees_ + totalNodesFairnessModificator: ${prismPositiveInteger.reverseGet(denormalizedProbabilitiesTotal)} !== ${prismNonNegativeInteger.reverseGet(totalEdges)} + ${totalNodesFairnessModificator}`
+    );
+  }
+}
+
 // https://en.wikipedia.org/wiki/Non-linear_preferential_attachment
 export const nlpa =
   (alpha = castDecimal0n(1)) =>
@@ -80,12 +125,12 @@ export const nlpa =
     totalEdges: NonNegativeInteger;
   }) =>
   (s: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
-    const nodeFairnessK = prismNonNegativeInteger.reverseGet(castNonNegativeInteger(1)); // signifies that we want to get nodes with 0 connections any chance
+    const ZERO_CONNECTION_NODE_FAIRNESS = castNonNegativeInteger(1); // signifies that we want to give the nodes with 0 connections some chance
+    const nodeFairnessK = prismNonNegativeInteger.reverseGet(ZERO_CONNECTION_NODE_FAIRNESS);
     const totalNodes_ = prismPositiveInteger.reverseGet(totalNodes);
     const totalNodesFairnessModificator = castNonNegativeInteger(totalNodes_ * nodeFairnessK);
-    const totalEdges_ = prismNonNegativeInteger.reverseGet(totalEdges);
-    // number of edges ONCE cause we are directed
-    const sumOfDegrees_ = totalEdges_;
+    // number of edges ONCE cause the graph is directed
+    const sumOfDegrees_ = prismNonNegativeInteger.reverseGet(totalEdges);
     // because floats would lose some precision and would make the sum !== 1
     const denormalizedProbabilities = pipe(
       range(0, prismNonNegativeInteger.reverseGet(castNonNegativeInteger(totalNodes_ - 1))),
@@ -93,24 +138,16 @@ export const nlpa =
         flow(castIndex, getDegree, prismNonNegativeInteger.reverseGet, (i) => i + nodeFairnessK, castPositiveInteger)
       )
     );
+    const denormalizedProbabilitiesCount = castPositiveInteger(denormalizedProbabilities.length); // is non empty array
     // floats...
     // assert.equal(pipe(probabilities, NEA.map(prismDecimal0n.reverseGet), RA.reduce(0, (a, b) => a + b)), 1);
     const denormalizedProbabilitiesTotal = pipe(
       denormalizedProbabilities,
-      NEA.map(prismPositiveInteger.reverseGet),
-      RA.reduce(0, (a, b) => a + b),
-      castNonNegativeInteger
+      NEA.concatAll(semigroupSumPositiveIntegers),
     );
-    const denormalizedProbabilitiesTotal_ = prismNonNegativeInteger.reverseGet(denormalizedProbabilitiesTotal);
-    if (
-      denormalizedProbabilitiesTotal_ !==
-      sumOfDegrees_ + prismNonNegativeInteger.reverseGet(totalNodesFairnessModificator)
-    ) {
-      throw new Error(
-        `panic! denormalizedProbabilitiesTotal_ !== sumOfDegrees_ + totalNodesFairnessModificator: ${denormalizedProbabilitiesTotal_} !== ${sumOfDegrees_} + ${totalNodesFairnessModificator}`
-      );
-    }
-    if (denormalizedProbabilities.length !== totalNodes_) {
+    const denormalizedProbabilitiesTotal_ = prismPositiveInteger.reverseGet(denormalizedProbabilitiesTotal);
+    assertDenormalizedProbabilitiesTotal(denormalizedProbabilitiesTotal, totalEdges, totalNodesFairnessModificator);
+    if (pipe(positiveIntegerEq.equals, curry2, apply(denormalizedProbabilitiesCount), not, apply(totalNodes))) {
       throw new Error(
         `panic! denormalizedProbabilities.length !== totalNodes_: ${denormalizedProbabilities.length} !== ${totalNodes_}`
       );

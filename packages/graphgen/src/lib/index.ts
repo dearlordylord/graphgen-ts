@@ -34,14 +34,14 @@ import { BARABASI_ALBERT_BRANCHING_MODEL_NAME, DND_BRANCHING_MODEL_NAME } from '
 
 type NodesCount = ListLength;
 
-type Settings<T extends BranchingModel> = {
+export type Settings<T extends BranchingModel> = {
   heterogeneity: Heterogeneity;
   branchingModel: T;
   density: Density;
   nodes: NodesCount;
 };
 
-export type GraphGeneratorSettingsInput = Partial<Settings<BranchingModel | never>>;
+export type GraphGeneratorSettingsInput = Partial<Settings<BranchingModel>>;
 
 const defaultSettingsInput: GraphGeneratorSettingsInput = {};
 
@@ -110,9 +110,8 @@ const paramsFromSettings = (settings: Settings<BranchingModel | never>) => {
     Math.ceil,
     castListLength
   );
-  const BARABASI_ALBERT_COCKINESS_LEVEL = castPositiveInteger(42);
 
-  const scaledNLPAHeterogeneity = scaleNLPAHeterogeneity(BARABASI_ALBERT_COCKINESS_LEVEL)(heterogeneity);
+  const scaledNLPAHeterogeneity = scaleNLPAHeterogeneity(heterogeneity);
 
   const gravitate =
     branchingModel === DND_BRANCHING_MODEL_NAME

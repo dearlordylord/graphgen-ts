@@ -1,6 +1,6 @@
 import { ForceGraph2D } from 'react-force-graph';
 import styles from './app.module.scss';
-import { useLocalGraph } from './data';
+import { GraphData, useLocalGraph } from './data';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useUuidV4 from 'react-uuid-hook';
 import hash from 'object-hash';
@@ -10,6 +10,14 @@ import { castListLength, prismListLength } from '@firfi/utils/list/prisms';
 import { BranchingModel } from '@firfi/graphgen/types';
 import { isoSeed } from '@firfi/utils/rng/seed/iso';
 import { assertExists } from '@firfi/utils/index';
+import { GraphUrlParamsSetters, GraphUrlParamsStrict, useGraphQueryParams } from './useQueryParams';
+import { BRANCHING_MODELS } from '@firfi/graphgen/constants';
+import * as A from 'fp-ts/Array';
+import { flow, pipe } from 'fp-ts/function';
+import * as NEA from 'fp-ts/NonEmptyArray';
+import * as R from 'fp-ts/Record';
+import { castNonEmptyArray } from '@firfi/utils/array';
+import { hashMemoParams, memo1 } from './memos';
 
 type Coords = {
   x: number;
@@ -17,83 +25,7 @@ type Coords = {
   z: number;
 };
 
-interface ForceGraphMethods {
-  // Link styling
-  // emitParticle(link: LinkObject$1): ForceGraph3DInstance;
-  //
-  // // Force engine (d3-force) configuration
-  // d3Force(forceName: 'link' | 'charge' | 'center' | string): ForceFn$1 | undefined;
-  // d3Force(forceName: 'link' | 'charge' | 'center' | string, forceFn: ForceFn$1): ForceGraph3DInstance;
-  // d3ReheatSimulation(): ForceGraph3DInstance;
-  //
-  // // Render control
-  // pauseAnimation(): ForceGraph3DInstance;
-  // resumeAnimation(): ForceGraph3DInstance;
-  cameraPosition(position: Partial<Coords>, lookAt?: Coords, transitionMs?: number): void;
-  // zoomToFit(durationMs?: number, padding?: number, nodeFilter?: (node: NodeObject$1) => boolean): ForceGraph3DInstance;
-  // postProcessingComposer(): EffectComposer;
-  // scene(): Scene;
-  // camera(): Camera;
-  // renderer(): WebGLRenderer;
-  // controls(): object;
-  // refresh(): ForceGraph3DInstance;
-  //
-  // // Utility
-  // getGraphBbox(nodeFilter?: (node: NodeObject$1) => boolean): { x: [number, number], y: [number, number], z: [number, number] };
-  // screen2GraphCoords(x: number, y: number, distance: number): Coords;
-  // graph2ScreenCoords(x: number, y: number, z: number): Coords;
-}
-
-const useCameraRotation = () => {
-  const distance = 3000;
-  const fgRef = useRef<ForceGraphMethods>();
-  const animationFrameHandleRef = useRef<number>();
-  const mainHandleRef = useRef<number>();
-  const angleRef = useRef<number>(0);
-  const allowRun = useRef<boolean>(false);
-  const f = useCallback(
-    (ref: ForceGraphMethods, t = 3000 /*give some time initially before it bounces around*/) =>
-      setTimeout(() => {
-        // fgRef.current!.cameraPosition({ z: distance }); // TODO maybe not at all
-        animationFrameHandleRef.current = window.requestAnimationFrame(() => {
-          if (allowRun.current) {
-            // any changes only on allowRun
-            ref.cameraPosition({
-              x: distance * Math.sin(angleRef.current),
-              z: distance * Math.cos(angleRef.current),
-            });
-          }
-          angleRef.current += Math.PI / 300;
-          f(ref, 100);
-        });
-      }, t),
-    []
-  );
-  const cleanup = useCallback(() => {
-    if (typeof mainHandleRef.current !== 'undefined') clearTimeout(mainHandleRef.current);
-    if (typeof animationFrameHandleRef.current !== 'undefined')
-      window.cancelAnimationFrame(animationFrameHandleRef.current);
-    angleRef.current = 0;
-    allowRun.current = false;
-  }, []);
-
-  const cb = useCallback(
-    (ref: ForceGraphMethods | null) => {
-      if (ref === null) {
-        cleanup();
-        return;
-      }
-      f(ref);
-    },
-    [fgRef, cleanup]
-  );
-  return {
-    ref: cb,
-    run: useCallback((b: boolean) => {
-      allowRun.current = b;
-    }, []),
-  };
-};
+type ForceGraphMethods = Exclude<Exclude<Parameters<typeof ForceGraph2D>[0]['ref'], undefined>['current'], undefined>;
 
 // Hook
 const useDebounce = <T,>(value: T, delay: number) => {
@@ -117,19 +49,117 @@ const useDebounce = <T,>(value: T, delay: number) => {
   return debouncedValue;
 };
 
-const BRANCHING_MODELS = ['barabasi-albert', 'dnd'] as BranchingModel[];
+// TODO dry
+const useHeterogeneity = () => {
+  const { heterogeneity, setHeterogeneity } = useGraphQueryParams();
+  const [value, set] = useState(heterogeneity === null ? castHeterogeneity(0.3) : heterogeneity);
+  return [value, useCallback((v: typeof value) => {
+    set(v);
+    setHeterogeneity(v);
+  }, [])] as const;
+};
 
-const useGraphData = () => {
+const useSeed = () => {
+  const { seed, setSeed } = useGraphQueryParams();
+  const [value, set] = useState(seed === null ? isoSeed.from('seed') : seed);
+  return [value, useCallback((v: typeof value) => {
+    set(v);
+    setSeed(v);
+  }, [])] as const;
+};
+
+const useDensity = () => {
+  const { density, setDensity } = useGraphQueryParams();
+  const [value, set] = useState(density === null ? castDensity(0): density);
+  return [value, useCallback((v: typeof value) => {
+    set(v);
+    setDensity(v);
+  }, [])] as const;
+};
+
+const useNodesCount = () => {
+  const { nodes, setNodes } = useGraphQueryParams();
+  const [value, set] = useState(nodes === null ? castListLength(10) : nodes);
+  return [value, useCallback((v: typeof value) => {
+    set(v);
+    setNodes(v);
+  }, [])] as const;
+};
+
+const useBranchingModel = () => {
+  const { model, setModel } = useGraphQueryParams();
+  const [value, set] = useState(model === null ? BRANCHING_MODELS[0] : model);
+  return [value, useCallback((v: typeof value) => {
+    set(v);
+    setModel(v);
+  }, [])] as const;
+};
+
+const useGraphSettings = (): GraphUrlParamsStrict & GraphUrlParamsSetters => {
+  const [seed, setSeed] = useSeed();
+  const [heterogeneity, setHeterogeneity] = useHeterogeneity();
+  const [density, setDensity] = useDensity();
+  const [nodes, setNodes] = useNodesCount();
+  const [branchingModel, setBranchingModel] = useBranchingModel();
+  return useMemo(() => ({
+    seed,
+    setSeed,
+    heterogeneity,
+    setHeterogeneity,
+    density,
+    setDensity,
+    nodes,
+    setNodes,
+    model: branchingModel,
+    setModel: setBranchingModel,
+  }), [seed, setSeed, heterogeneity, setHeterogeneity, density, setDensity, nodes, setNodes, branchingModel, setBranchingModel]);
+};
+
+const useMemoizedLayout = (graphHash: string, graphSettings: GraphUrlParamsStrict, graphData: GraphData): readonly [GraphData, boolean] => {
+  return useMemo(() => {
+    const hash = hashMemoParams({
+      ...graphSettings,
+      graphHash,
+    });
+    if (memo1[0] === hash) {
+      return [{
+        ...graphData,
+        nodes: graphData.nodes.map(n => {
+          const data = assertExists(memo1[1][n.id as keyof typeof memo1[1]]);
+          return {
+            ...n,
+            x: data.x,
+            y: data.y,
+            vx: data.vx,
+            vy: data.vy,
+          };
+        })
+      }, true] as const
+    } else {
+      return [graphData, false] as const;
+    }
+  }, [graphHash])
+
+}
+
+const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>)=> {
   const DEBOUNCE = 500;
-  const [seed, setSeed] = useState(isoSeed.from('seed'));
+  const {
+    seed,
+    setSeed,
+    heterogeneity,
+    setHeterogeneity,
+    density,
+    setDensity,
+    nodes,
+    setNodes,
+    model: branchingModel,
+    setModel: setBranchingModel,
+  } = graphSettings;
   const seedDebounced = useDebounce(seed, DEBOUNCE);
-  const [heterogeneity, setHeterogeneity] = useState(castHeterogeneity(0.3));
   const heterogeneityDebounced = useDebounce(heterogeneity, DEBOUNCE);
-  const [density, setDensity] = useState(castDensity(0));
   const densityDebounced = useDebounce(density, DEBOUNCE);
-  const [nodes, setNodes] = useState(castListLength(10));
   const nodesDebounced = useDebounce(nodes, DEBOUNCE);
-  const [branchingModel, setBranchingModel] = useState(BRANCHING_MODELS[0]);
   const branchingModelDebounced = useDebounce(branchingModel, DEBOUNCE);
   //const { data, isLoading } = useGraphQuery(seedDebounced, {
   const g = useLocalGraph(seedDebounced, {
@@ -228,11 +258,23 @@ const Settings = ({
 };
 
 const App = () => {
-  const { ref, run } = useCameraRotation();
-  const { data: data_, isLoading, progress, ...controls } = useGraphData();
+  const [ref, setRef] = useState<ForceGraphMethods>();
+  const graphSettings = useGraphSettings();
+  const { data: data_, isLoading, progress, ...controls } = useGraphData(graphSettings);
   const data = data_ || empty;
   const graphHash = useMemo(() => (data ? hash(data) : 'not ready'), [data]);
   const dataMemoized = useMemo(() => data, [graphHash]);
+  const [dataMemoizedMaybeLayoutEnhanced, memoizeMatched] = useMemoizedLayout(graphHash, graphSettings, dataMemoized);
+  const onStop = useCallback(() => {
+    pipe(dataMemoizedMaybeLayoutEnhanced.nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
+      const rr = {...r};
+      // @ts-ignore
+      delete rr.id;
+      // @ts-ignore
+      delete rr.__indexColor;
+      return rr;
+    })), o => JSON.stringify(o, null, 2), console.log.bind(console));
+  }, [ref, dataMemoizedMaybeLayoutEnhanced]);
   return (
     <div className={styles.app}>
       <div className={styles.settingsAndHash}>
@@ -241,11 +283,10 @@ const App = () => {
         {progress !== undefined ? <progress value={progress} max={100} /> : null}
       </div>
       <ForceGraph2D
-        onEngineStop={() => run(true)}
+        cooldownTicks={memoizeMatched ? 0 : 100}
         nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
         linkColor={(e) => ((e as any).type === 'settlement' ? 'yellow' : 'white')}
-        ref={ref as any}
-        graphData={dataMemoized}
+        graphData={dataMemoizedMaybeLayoutEnhanced}
         linkDirectionalArrowLength={3.5}
         linkDirectionalArrowRelPos={1}
         linkCurvature={0.25}

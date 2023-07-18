@@ -27,7 +27,7 @@ type Data = {
   };
 };
 
-type GraphData = {
+export type GraphData = {
   nodes: { id: string }[];
   links: {
     source: string;

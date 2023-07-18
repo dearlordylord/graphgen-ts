@@ -6,19 +6,18 @@ import { prismPositiveInteger } from 'newtype-ts/lib/PositiveInteger';
 
 describe('barabasiAlbert scale', () => {
   it('scales heterogeneity in the range [0, 0.5] to [0, 1]', () => {
-    const n = castPositiveInteger(5);
-    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(n)(castHeterogeneity(0)))).toBeCloseTo(0);
-    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(n)(castHeterogeneity(0.25)))).toBeCloseTo(0.5);
-    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(n)(castHeterogeneity(0.5)))).toBeCloseTo(1);
+    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(castHeterogeneity(0)))).toBeCloseTo(0);
+    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(castHeterogeneity(0.25)))).toBeCloseTo(0.5);
+    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(castHeterogeneity(0.5)))).toBeCloseTo(1);
   });
 
   it('scales heterogeneity in the range (0.5, 1] to (1, n]', () => {
     const n = castPositiveInteger(5);
-    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(n)(castHeterogeneity(0.75)))).toBeCloseTo(
-      (1 + prismPositiveInteger.reverseGet(n)) / 2
+    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(castHeterogeneity(0.75)))).toBeCloseTo(
+      1.5
     );
-    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(n)(castHeterogeneity(1)))).toBeCloseTo(
-      prismPositiveInteger.reverseGet(n)
+    expect(prismDecimal0n.reverseGet(scaleNLPAHeterogeneity(castHeterogeneity(1)))).toBeCloseTo(
+      2
     );
   });
 });
