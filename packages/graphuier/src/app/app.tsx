@@ -10,14 +10,21 @@ import { castListLength, prismListLength } from '@firfi/utils/list/prisms';
 import { BranchingModel } from '@firfi/graphgen/types';
 import { isoSeed } from '@firfi/utils/rng/seed/iso';
 import { assertExists } from '@firfi/utils/index';
-import { GraphUrlParamsSetters, GraphUrlParamsStrict, useGraphQueryParams } from './useQueryParams';
+import { GraphUrlParamsSetters, GraphUrlParamsStrict, QUERY_KEYS, useGraphQueryParams } from './useQueryParams';
 import { BRANCHING_MODELS } from '@firfi/graphgen/constants';
 import * as A from 'fp-ts/Array';
 import { flow, pipe } from 'fp-ts/function';
 import * as NEA from 'fp-ts/NonEmptyArray';
 import * as R from 'fp-ts/Record';
 import { castNonEmptyArray } from '@firfi/utils/array';
-import { hashMemoParams, memo1 } from './memos';
+import {
+  LAYOUT_MEMO_INDEX_LABELED,
+  memoParamsIsomorphism,
+  PresetLabel,
+  serializeMemoParams,
+  useLayoutMemo
+} from './memos';
+import { capitalize } from 'lodash';
 
 type Coords = {
   x: number;
@@ -95,6 +102,8 @@ const useBranchingModel = () => {
   }, [])] as const;
 };
 
+
+
 const useGraphSettings = (): GraphUrlParamsStrict & GraphUrlParamsSetters => {
   const [seed, setSeed] = useSeed();
   const [heterogeneity, setHeterogeneity] = useHeterogeneity();
@@ -115,31 +124,37 @@ const useGraphSettings = (): GraphUrlParamsStrict & GraphUrlParamsSetters => {
   }), [seed, setSeed, heterogeneity, setHeterogeneity, density, setDensity, nodes, setNodes, branchingModel, setBranchingModel]);
 };
 
-const useMemoizedLayout = (graphHash: string, graphSettings: GraphUrlParamsStrict, graphData: GraphData): readonly [GraphData, boolean] => {
-  return useMemo(() => {
-    const hash = hashMemoParams({
-      ...graphSettings,
-      graphHash,
-    });
-    if (memo1[0] === hash) {
-      return [{
-        ...graphData,
-        nodes: graphData.nodes.map(n => {
-          const data = assertExists(memo1[1][n.id as keyof typeof memo1[1]]);
-          return {
-            ...n,
-            x: data.x,
-            y: data.y,
-            vx: data.vx,
-            vy: data.vy,
-          };
-        })
-      }, true] as const
-    } else {
-      return [graphData, false] as const;
-    }
-  }, [graphHash])
-
+const useMemoizedLayout = (graphSettings: GraphUrlParamsStrict, graphData: GraphData): {
+  loaded: false,
+} | {
+  loaded: true,
+  data: readonly [GraphData, boolean]
+} => {
+  const { layoutMemo, loading, loaded } = useLayoutMemo(graphSettings);
+  const defaultResponse = useMemo(() => [graphData, false] as const, [graphData]);
+  const enhancedResponse = useMemo(() => {
+    if (layoutMemo === null) return defaultResponse; // can be null
+    return [{
+      ...graphData,
+      nodes: graphData.nodes.map(n => {
+        const data = assertExists(layoutMemo[n.id as keyof typeof layoutMemo]);
+        return {
+          ...n,
+          x: data.x,
+          y: data.y,
+          vx: data.vx,
+          vy: data.vy,
+        };
+      })
+    }, true] as const
+  }, [graphData, defaultResponse])
+  if (loading || !loaded) return {
+    loaded: false,
+  }
+  return {
+    loaded: true,
+    data: enhancedResponse,
+  };
 }
 
 const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>)=> {
@@ -257,6 +272,54 @@ const Settings = ({
   );
 };
 
+const useMemoStringFromUrl = () => {
+  const queryParams = useGraphSettings();
+  const setters = useGraphQueryParams();
+  const memoString = useMemo(() => memoParamsIsomorphism.to(queryParams), [queryParams]);
+  const set = useCallback((params: GraphUrlParamsStrict) => {
+    QUERY_KEYS.forEach((k) => {
+      const f = setters[`set${capitalize(k) as Capitalize<typeof k>}`];
+      f(params[k] as any/*TODO better typecheck for this foreach, how?*/);
+    });
+  }, [setters]);
+  return [memoString, set] as const;
+}
+
+const PresetSelector = () => {
+  const [memoStringFromUrl, setUrl] = useMemoStringFromUrl();
+  type Memo = keyof typeof LAYOUT_MEMO_INDEX_LABELED;
+  const presets = LAYOUT_MEMO_INDEX_LABELED;
+  const detectPreset = useCallback((): Memo | null => {
+    const preset = Object.entries(presets).find(([preset, _]) => preset === memoStringFromUrl);
+    return preset ? preset[0] as Memo : null;
+  }, [memoStringFromUrl]);
+  const [preset, setPreset] = useState<Memo | null>(detectPreset());
+  const [presetInputId] = useUuidV4();
+  const set = useCallback((preset: Memo | null) => {
+    setPreset(preset);
+    if (preset) {
+      setUrl(memoParamsIsomorphism.from(preset));
+    }
+  }, [])
+  return (
+    <div className={styles.presetSelector}>
+      <label htmlFor={presetInputId}>Preset</label>
+      <select
+        id={presetInputId}
+        value={preset || ''}
+        onChange={(e) => set(e.target.value ? e.target.value as Memo : null)}
+      >
+        <option value={""}>None</option>
+        {Object.entries(presets).map(([p, label]) => (
+          <option key={p} value={p as Memo}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 const App = () => {
   const [ref, setRef] = useState<ForceGraphMethods>();
   const graphSettings = useGraphSettings();
@@ -264,9 +327,10 @@ const App = () => {
   const data = data_ || empty;
   const graphHash = useMemo(() => (data ? hash(data) : 'not ready'), [data]);
   const dataMemoized = useMemo(() => data, [graphHash]);
-  const [dataMemoizedMaybeLayoutEnhanced, memoizeMatched] = useMemoizedLayout(graphHash, graphSettings, dataMemoized);
+  const memoRes = useMemoizedLayout(graphSettings, dataMemoized);
   const onStop = useCallback(() => {
-    pipe(dataMemoizedMaybeLayoutEnhanced.nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
+    if (!memoRes.loaded) return;
+    pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
       const rr = {...r};
       // @ts-ignore
       delete rr.id;
@@ -274,24 +338,25 @@ const App = () => {
       delete rr.__indexColor;
       return rr;
     })), o => JSON.stringify(o, null, 2), console.log.bind(console));
-  }, [ref, dataMemoizedMaybeLayoutEnhanced]);
+  }, [ref, !memoRes.loaded || memoRes.data[0]]);
   return (
     <div className={styles.app}>
       <div className={styles.settingsAndHash}>
         <Settings {...controls} />
         {isLoading ? <div>Loading...</div> : <div>Hash: {graphHash}</div>}
         {progress !== undefined ? <progress value={progress} max={100} /> : null}
+        <PresetSelector />
       </div>
-      <ForceGraph2D
-        cooldownTicks={memoizeMatched ? 0 : 100}
+      {!memoRes.loaded ? null : <ForceGraph2D
+        cooldownTicks={memoRes.data[1] ? 0 : 100}
         nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
         linkColor={(e) => ((e as any).type === 'settlement' ? 'yellow' : 'white')}
-        graphData={dataMemoizedMaybeLayoutEnhanced}
+        graphData={memoRes.data[0]}
         linkDirectionalArrowLength={3.5}
         linkDirectionalArrowRelPos={1}
         linkCurvature={0.25}
         nodeLabel={(n) => `${n.id!}`}
-      />
+      />}
     </div>
   );
 };

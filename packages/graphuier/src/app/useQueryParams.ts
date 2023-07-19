@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BranchingModel, BranchingModelSchema } from '@firfi/graphgen/types';
 import { Heterogeneity } from '@firfi/utils/graph/heterogeneity/types';
 import { Seed } from '@firfi/utils/rng/seed/types';
 import { Density } from '@firfi/utils/graph/density/types';
 import * as RA from 'fp-ts/ReadonlyArray';
-import { flow, pipe } from 'fp-ts/function';
+import { constant, flow, pipe } from 'fp-ts/function';
+import { Endomorphism } from 'fp-ts/Endomorphism';
 import * as S from '@effect/schema/Schema';
 import * as O from 'fp-ts/Option';
 import { isoSeed } from '@firfi/utils/rng/seed/iso';
@@ -13,6 +14,9 @@ import { prismDensity } from '@firfi/utils/graph/density/prism';
 import { Pipe, Objects, Strings, Booleans, Fn, Functions, Compose } from 'hotscript';
 import { prismListLength } from '@firfi/utils/list/prisms';
 import { ListLength } from '@firfi/utils/list/types';
+import { Option } from 'fp-ts/Option';
+import * as Struct from 'fp-ts/struct';
+import { sequenceS } from 'fp-ts/Apply';
 
 
 export const useQueryParams = (): readonly [URLSearchParams, (k: string) => (v: string | null) => void] => {
@@ -35,8 +39,15 @@ export const useQueryParams = (): readonly [URLSearchParams, (k: string) => (v: 
     }
 
     setQueryParams(new URLSearchParams(queryParams));
-    window.location.search = queryParams.toString();
   }, [queryParams]);
+
+  const lastQueryParamsRef = useRef(queryParams.toString());
+  // hope is this will catch the case when I change many query parameters one by one in one loop
+  useEffect(() => {
+    if (lastQueryParamsRef.current === queryParams.toString()) return;
+    window.location.search = queryParams.toString();
+    lastQueryParamsRef.current = queryParams.toString();
+  }, [queryParams.toString()]);
 
   return [queryParams, setParam] as const;
 };
@@ -56,6 +67,18 @@ export type GraphUrlParamsStrict = {
   [DENSITY_KEY]: Density,
   [NODES_KEY]: ListLength
 }
+
+const graphUrlParamsParsers = {
+  [SEED_KEY]: flow(isoSeed.from, O.some),
+  [MODEL_KEY]: S.parseOption(BranchingModelSchema),
+  [HETEROGENEITY_KEY]: flow(parseFloat, S.parseOption(S.number), O.chain(prismHeterogeneity.getOption)),
+  [DENSITY_KEY]: flow(parseFloat, S.parseOption(S.number), O.chain(prismDensity.getOption)),
+  [NODES_KEY]: flow(parseFloat, S.parseOption(S.number), O.chain(prismListLength.getOption))
+};
+
+export const parseGraphUrlParamsStrict = (queryParams: {
+  [k in typeof QUERY_KEYS[number]]: string
+}): Option<GraphUrlParamsStrict> => pipe(queryParams, Struct.evolve(graphUrlParamsParsers), sequenceS(O.Applicative))
 
 interface Nulliate extends Fn {
   return: this["arg0"] | null;
@@ -86,17 +109,29 @@ export const useGraphQueryParams = (): Res => {
       }
     ), [queryParams]);
 
-  return useMemo(() => ({
-    seed: pipe(seed, O.fromNullable, O.map(isoSeed.from), O.getOrElseW(() => null)),
-    setSeed: flow(isoSeed.to, setSeed),
-    model: pipe(model, O.fromNullable, O.chain(S.parseOption(BranchingModelSchema)), O.getOrElseW(() => null)),
-    setModel: flow(S.encodeOption(BranchingModelSchema), O.map(setModel)),
-    heterogeneity: pipe(heterogeneity, O.fromNullable, O.map(parseFloat), O.chain(S.parseOption(S.number)), O.chain(prismHeterogeneity.getOption), O.getOrElseW(() => null)),
-    setHeterogeneity: flow(prismHeterogeneity.reverseGet, n => n.toString(), setHeterogeneity),
-    density: pipe(density, O.fromNullable, O.map(parseFloat), O.chain(S.parseOption(S.number)), O.chain(prismDensity.getOption), O.getOrElseW(() => null)),
-    setDensity: flow(prismDensity.reverseGet, n => n.toString(), setDensity),
-    nodes: pipe(nodes, O.fromNullable, O.map(parseFloat), O.chain(S.parseOption(S.number)), O.chain(prismListLength.getOption), O.getOrElseW(() => null)),
-    setNodes: flow(prismListLength.reverseGet, n => n.toString(), setNodes)
-  }), [seed, model, heterogeneity, density, nodes]);
+  // TODO dry me
+  return useMemo(() => {
+    const nonStrictParser = <T>(f: (s: string) => Option<T>) => flow(O.fromNullable<string | null>, O.chain(f), O.getOrElseW(() => null));
+    const nonStrictParsers = pipe(graphUrlParamsParsers, Struct.evolve({
+      [SEED_KEY]: f => nonStrictParser(f),
+      [MODEL_KEY]: f => nonStrictParser(f),
+      [HETEROGENEITY_KEY]: f => nonStrictParser(f),
+      [DENSITY_KEY]: f => nonStrictParser(f),
+      [NODES_KEY]: f => nonStrictParser(f)
+    }));
+    return {
+      ...nonStrictParsers,
+      seed: pipe(seed, nonStrictParsers[SEED_KEY]),
+      setSeed: flow(isoSeed.to, setSeed),
+      model: pipe(model, nonStrictParsers[MODEL_KEY]),
+      setModel: flow(S.encodeOption(BranchingModelSchema), O.map(setModel)),
+      heterogeneity: pipe(heterogeneity, nonStrictParsers[HETEROGENEITY_KEY]),
+      setHeterogeneity: flow(prismHeterogeneity.reverseGet, n => n.toString(), setHeterogeneity),
+      density: pipe(density, nonStrictParsers[DENSITY_KEY]),
+      setDensity: flow(prismDensity.reverseGet, n => n.toString(), setDensity),
+      nodes: pipe(nodes, nonStrictParsers[NODES_KEY]),
+      setNodes: flow(prismListLength.reverseGet, n => n.toString(), setNodes)
+    };
+  }, [seed, model, heterogeneity, density, nodes]);
 
 }
