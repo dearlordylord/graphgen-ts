@@ -18,6 +18,7 @@ import * as NEA from 'fp-ts/NonEmptyArray';
 import * as R from 'fp-ts/Record';
 import { castNonEmptyArray } from '@firfi/utils/array';
 import {
+  LAYOUT_MEMO_INDEX,
   LAYOUT_MEMO_INDEX_LABELED,
   memoParamsIsomorphism,
   PresetLabel,
@@ -287,7 +288,7 @@ const useMemoStringFromUrl = () => {
 
 const PresetSelector = () => {
   const [memoStringFromUrl, setUrl] = useMemoStringFromUrl();
-  type Memo = keyof typeof LAYOUT_MEMO_INDEX_LABELED;
+  type Memo = typeof LAYOUT_MEMO_INDEX[number];
   const presets = LAYOUT_MEMO_INDEX_LABELED;
   const detectPreset = useCallback((): Memo | null => {
     const preset = Object.entries(presets).find(([preset, _]) => preset === memoStringFromUrl);
@@ -330,6 +331,8 @@ const App = () => {
   const memoRes = useMemoizedLayout(graphSettings, dataMemoized);
   const onStop = useCallback(() => {
     if (!memoRes.loaded) return;
+    if (memoRes.data[0].nodes.length === 0) return;
+    console.log(serializeMemoParams(graphSettings));
     pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
       const rr = {...r};
       // @ts-ignore
@@ -338,7 +341,7 @@ const App = () => {
       delete rr.__indexColor;
       return rr;
     })), o => JSON.stringify(o, null, 2), console.log.bind(console));
-  }, [ref, !memoRes.loaded || memoRes.data[0]]);
+  }, [ref, graphSettings, !memoRes.loaded || memoRes.data[0]]);
   return (
     <div className={styles.app}>
       <div className={styles.settingsAndHash}>
@@ -348,6 +351,7 @@ const App = () => {
         <PresetSelector />
       </div>
       {!memoRes.loaded ? null : <ForceGraph2D
+        onEngineStop={onStop}
         cooldownTicks={memoRes.data[1] ? 0 : 100}
         nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
         linkColor={(e) => ((e as any).type === 'settlement' ? 'yellow' : 'white')}

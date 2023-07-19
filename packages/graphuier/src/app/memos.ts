@@ -58,17 +58,27 @@ const LayoutMemoSchema = S.record(S.string, LayoutMemoNodeSchema);
 type LayoutMemo = S.From<typeof LayoutMemoSchema>;
 
 // what files we have - don't make the user going through the network excessively
-export const LAYOUT_MEMO_INDEX = [
-  'density>0.08|heterogeneity>0.44|model>barabasi-albert|nodes>788|seed>seed2' as MemoParamsSerialized,
-];
+export const LAYOUT_MEMO_INDEX_RAW = [
+  'density>0.08|heterogeneity>0.44|model>barabasi-albert|nodes>788|seed>seed2',
+  'density>0|heterogeneity>1|model>barabasi-albert|nodes>529|seed>seed22222',
+  'density>0|heterogeneity>0|model>barabasi-albert|nodes>529|seed>seed',
+  'density>0.15|heterogeneity>0|model>barabasi-albert|nodes>529|seed>seed',
+  'density>0.07|heterogeneity>0.15|model>dnd|nodes>1730|seed>seed',
+] as const;
+
+export const LAYOUT_MEMO_INDEX = LAYOUT_MEMO_INDEX_RAW.map(s => s as MemoParamsSerialized);
 
 export const PresetLabelSchema = S.string.pipe(S.brand("PresetLabel"));
 export type PresetLabel = S.To<typeof PresetLabelSchema>;
 
 export const LAYOUT_MEMO_INDEX_LABELED: {
-  [k in typeof LAYOUT_MEMO_INDEX[number]]: PresetLabel
+  [k in typeof LAYOUT_MEMO_INDEX_RAW[number]]: PresetLabel
 } = {
-  [LAYOUT_MEMO_INDEX[0]]: 'organic-medium' as PresetLabel
+  [LAYOUT_MEMO_INDEX_RAW[0]]: 'organic-medium' as PresetLabel,
+  [LAYOUT_MEMO_INDEX_RAW[1]]: 'tapeworm' as PresetLabel,
+  [LAYOUT_MEMO_INDEX_RAW[2]]: 'lone-hedgehog' as PresetLabel,
+  [LAYOUT_MEMO_INDEX_RAW[3]]: 'hairy-star' as PresetLabel,
+  [LAYOUT_MEMO_INDEX_RAW[4]]: 'dnd-preferential-attachment' as PresetLabel,
 }
 
 const tryLayoutMemo = (params: GraphUrlParamsStrict): Promise<Option<LayoutMemo>> => fetch(`/layout/memo/${serializeMemoParams(params)}.json`).then(r => r.json()).then(flow(S.parseOption(LayoutMemoSchema))).catch(() => none);
