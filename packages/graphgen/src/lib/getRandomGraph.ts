@@ -20,12 +20,6 @@ import { BiMap } from '@rimbu/bimap';
 import { fromEntries } from '@firfi/utils/object';
 import { assertExists } from '@firfi/utils/index';
 
-flow(
-  RE.ask(),
-  A.map(getRandomIdentityForNumber),
-  A.sequence(ST.Applicative),
-  ST.map(([a, b]) => [a, b])
-) satisfies Reader<[number, number], State<AnonymizedIdentityState, [string, string]>>;
 const getRandomIdentityForIndex = flow(prismIndex.reverseGet, getRandomIdentityForNumber);
 const getRandomIdentityForIndexPair = flow(
   A.map(getRandomIdentityForIndex),
