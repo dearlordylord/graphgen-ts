@@ -2,7 +2,7 @@ import { State as RngState } from 'seedrandom';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
 import { not } from 'fp-ts/Predicate';
 import { evolve } from 'fp-ts/struct';
-import { absurd, apply, flow, pipe } from 'fp-ts/function';
+import { absurd, apply, constTrue, flow, pipe } from 'fp-ts/function';
 import * as O from 'fp-ts/Option';
 import { isNone, none, Option, some } from 'fp-ts/Option';
 import * as NEA from 'fp-ts/NonEmptyArray';
@@ -17,9 +17,9 @@ import { Newtype, prism } from 'newtype-ts';
 import { prismRandom01, Random01 } from '@firfi/utils/rng';
 import { defBiasedDistribution, nlpa } from './distribution';
 import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
-import { castHeterogeneity, isNotHeterogeneity, prismHeterogeneity } from '@firfi/utils/graph/heterogeneity/prism';
+import { castHeterogeneity, prismHeterogeneity } from '@firfi/utils/graph/heterogeneity/prism';
 import { Heterogeneity } from '@firfi/utils/graph/heterogeneity/types';
-import { castDecimal01 } from '@firfi/utils/number/decimal01/prism';
+import { castDecimal01, prismDecimal01 } from '@firfi/utils/number/decimal01/prism';
 import { castToPrism } from '@firfi/utils/prism';
 import { castDensity, prismDensity } from '@firfi/utils/graph/density/prism';
 import { Density } from '@firfi/utils/graph/density/types';
@@ -31,6 +31,7 @@ import { random } from '@firfi/utils/rng/random';
 import { BranchingModel, GraphStreamOp } from './types';
 import { castNonEmptyArray, getIthC } from '@firfi/utils/array';
 import { BARABASI_ALBERT_BRANCHING_MODEL_NAME, DND_BRANCHING_MODEL_NAME } from '@firfi/graphgen/constants';
+import { Decimal01 } from '@firfi/utils/number/decimal01/types';
 
 type NodesCount = ListLength;
 
@@ -52,10 +53,9 @@ const defaultSettings: Settings<typeof BARABASI_ALBERT_BRANCHING_MODEL_NAME> = {
   branchingModel: BARABASI_ALBERT_BRANCHING_MODEL_NAME,
 };
 
-type Gravity = Newtype<{ readonly GRAVITY: unique symbol }, number>;
+type Gravity = Newtype<{ readonly GRAVITY: unique symbol }, Decimal01>;
 
-const isNotGravity = isNotHeterogeneity; // equivalent, and the assumption is that.
-const prismGravity = prism<Gravity>(not(isNotGravity));
+const prismGravity = prismDecimal01.compose(prism<Gravity>(constTrue));
 const castGravity = castToPrism(prismGravity)((n) => `Invalid cast, gravity is not in range 0-1: ${n}`);
 
 // 1 to 1
