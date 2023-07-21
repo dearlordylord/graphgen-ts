@@ -124,7 +124,7 @@ export const nlpa =
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
   }) =>
-  (s: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
+  (rngState: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
     const ZERO_CONNECTION_NODE_FAIRNESS = castNonNegativeInteger(1); // signifies that we want to give the nodes with 0 connections some chance
     const nodeFairnessK = prismNonNegativeInteger.reverseGet(ZERO_CONNECTION_NODE_FAIRNESS);
     const totalNodes_ = prismPositiveInteger.reverseGet(totalNodes);
@@ -152,7 +152,7 @@ export const nlpa =
         `panic! denormalizedProbabilities.length !== totalNodes_: ${denormalizedProbabilities.length} !== ${totalNodes_}`
       );
     }
-    const [randomValue, s1] = random(s);
+    const [randomValue, s1] = random(rngState);
     const randomValue_ = prismRandom01.reverseGet(randomValue);
     const randomValueDenormalized = castDecimal1n(randomValue_ * denormalizedProbabilitiesTotal_ + 1);
     const randomValueDenormalizedAndAlfaScaled = castDecimal1n(
