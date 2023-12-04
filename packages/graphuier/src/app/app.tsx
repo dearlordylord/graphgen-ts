@@ -360,7 +360,7 @@ const App = () => {
         {progress !== undefined ? <progress value={progress} max={100} /> : null}
         <PresetSelector />
       </div>
-      {!memoRes.loaded ? null : <ForceGraph2D
+      {!memoRes.loaded ? <a href="#" onClick={handleRefresh}>Refresh if takes a while!</a> : <ForceGraph2D
         onEngineStop={onStop}
         cooldownTicks={memoRes.data[1] ? 0 : 100}
         nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
