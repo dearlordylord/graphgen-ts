@@ -4,7 +4,7 @@ import { Density } from '@firfi/utils/graph/density/types';
 import { ListLength } from '@firfi/utils/list/types';
 import { BranchingModel } from '@firfi/graphgen/types';
 import { Seed } from '@firfi/utils/rng/seed/types';
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import hash from 'object-hash';
 import {
   AdjacencyListWithMeta,
@@ -15,6 +15,7 @@ import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
 import { prismListLength } from '@firfi/utils/list/prisms';
 import { assertExists } from '@firfi/utils/index';
 import { assertNonEmptyOrNA } from '@firfi/utils/string';
+import useUuidV4 from 'react-uuid-hook/dist';
 
 type Data = {
   nodes: { [k in string]: { type: 'channel' | 'user' } };
@@ -87,10 +88,16 @@ type UseLocalGraphState = { data?: AdjacencyListWithMeta } & (
   | {
       progress: number;
       isLoading: true;
+      loaded: false;
     }
   | {
       isLoading: false;
+      loaded: false;
     }
+    | {
+      isLoading: false;
+      loaded: true;
+}
 );
 
 const reducer = (
@@ -106,6 +113,7 @@ const reducer = (
         ...state,
         isLoading: true,
         progress: 0,
+        loaded: false,
       };
     }
     case 'progress': {
@@ -113,6 +121,7 @@ const reducer = (
         ...state,
         isLoading: true,
         progress: action.progress,
+        loaded: false,
       };
     }
     case 'data': {
@@ -120,6 +129,7 @@ const reducer = (
         ...state,
         isLoading: false,
         data: action.data,
+        loaded: true,
       };
     }
     default: {
@@ -129,12 +139,22 @@ const reducer = (
   }
 };
 
-const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGraphState => {
+const simulateInitialLoadError = false;
+
+const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGraphState & {
+  refresh: () => void
+} => {
   const [seed, settings = {}] = params;
   const [state, dispatch] = useReducer(reducer, {
     isLoading: false,
+    loaded: false,
   });
+  // assumingly worker has certain problems when paired with browser page load optimisations at least in chrome
+  const [refreshTag, resetRefreshTag] = useUuidV4();
+  const refreshTagRef = useRef(refreshTag);
+
   useEffect(() => {
+    if (simulateInitialLoadError && refreshTagRef.current === refreshTag) return;
     const worker = new Worker(new URL('./graphgen-webworker.worker.ts', import.meta.url), {
       type: 'module',
     });
@@ -153,7 +173,7 @@ const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGr
             100,
         });
       } else if (e.data.type === 'end') {
-        // lil' misbehaviour here
+        // lil' misbehaviour here ("deserialisation")
         const al = new AdjacencyList(
           e.data.graph[0].adjacency.map((v, i) => v.map((v) => [i, v] as [number, number])).flat(1)
         );
@@ -165,8 +185,8 @@ const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGr
     return () => {
       worker.terminate();
     };
-  }, [hash({ seed, settings })]);
-  return state;
+  }, [refreshTag, hash({ seed, settings })]);
+  return { ...state, refresh: resetRefreshTag };
 };
 
 const localGraphToGraphData = (g: AdjacencyListWithMeta): GraphData => {

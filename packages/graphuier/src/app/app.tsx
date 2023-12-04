@@ -1,13 +1,12 @@
 import { ForceGraph2D } from 'react-force-graph';
 import styles from './app.module.scss';
 import { GraphData, useLocalGraph } from './data';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useUuidV4 from 'react-uuid-hook';
 import hash from 'object-hash';
 import { castHeterogeneity, prismHeterogeneity } from '@firfi/utils/graph/heterogeneity/prism';
 import { castDensity, prismDensity } from '@firfi/utils/graph/density/prism';
 import { castListLength, prismListLength } from '@firfi/utils/list/prisms';
-import { BranchingModel } from '@firfi/graphgen/types';
 import { isoSeed } from '@firfi/utils/rng/seed/iso';
 import { assertExists } from '@firfi/utils/index';
 import { GraphUrlParamsSetters, GraphUrlParamsStrict, QUERY_KEYS, useGraphQueryParams } from './useQueryParams';
@@ -199,7 +198,9 @@ const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>)=> {
     branchingModels: BRANCHING_MODELS,
     data,
     isLoading: isLoading || seed !== seedDebounced,
+    loaded: g.loaded,
     progress: g.isLoading ? g.progress : undefined,
+    refresh: g.refresh
   };
 };
 
@@ -217,7 +218,7 @@ const Settings = ({
   branchingModel,
   setBranchingModel,
   branchingModels,
-}: Omit<ReturnType<typeof useGraphData>, 'data' | 'isLoading' | 'progress'>) => {
+}: Omit<ReturnType<typeof useGraphData>, 'data' | 'isLoading' | 'loaded' | 'progress' | 'refresh'>) => {
   const [seedInputId] = useUuidV4();
   const [heterogeneityInputId] = useUuidV4();
   const [densityInputId] = useUuidV4();
@@ -324,24 +325,33 @@ const PresetSelector = () => {
 const App = () => {
   const [ref, setRef] = useState<ForceGraphMethods>();
   const graphSettings = useGraphSettings();
-  const { data: data_, isLoading, progress, ...controls } = useGraphData(graphSettings);
+  const { data: data_, isLoading, loaded, progress, refresh, ...controls } = useGraphData(graphSettings);
   const data = data_ || empty;
-  const graphHash = useMemo(() => (data ? hash(data) : 'not ready'), [data]);
+  const graphHash = useMemo(() => hash(data), [data]);
   const dataMemoized = useMemo(() => data, [graphHash]);
   const memoRes = useMemoizedLayout(graphSettings, dataMemoized);
   const onStop = useCallback(() => {
     if (!memoRes.loaded) return;
     if (memoRes.data[0].nodes.length === 0) return;
-    console.log(serializeMemoParams(graphSettings));
-    pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
-      const rr = {...r};
-      // @ts-ignore
-      delete rr.id;
-      // @ts-ignore
-      delete rr.__indexColor;
-      return rr;
-    })), o => JSON.stringify(o, null, 2), console.log.bind(console));
+    // pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
+    //   const rr = {...r};
+    //   // @ts-ignore
+    //   delete rr.id;
+    //   // @ts-ignore
+    //   delete rr.__indexColor;
+    //   return rr;
+    // })), o => JSON.stringify(o, null, 2), console.log.bind(console));
   }, [ref, graphSettings, !memoRes.loaded || memoRes.data[0]]);
+  const handleRefresh = useCallback((e: MouseEvent) => {
+    e.preventDefault();
+    refresh();
+  }, [refresh]);
+  if (!memoRes.loaded || !loaded) return <div>
+    <div>
+      Loading...
+    </div>
+    <a href="#" onClick={handleRefresh}>Refresh if takes a while!</a>
+  </div>;
   return (
     <div className={styles.app}>
       <div className={styles.settingsAndHash}>
