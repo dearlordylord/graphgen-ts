@@ -69,7 +69,7 @@ const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState.Arc4, Rando
 
 type NodeIndex = Index;
 
-type DegreeFunction = (node: NodeIndex) => NonNegativeInteger;
+export type DegreeFunction = (node: NodeIndex) => NonNegativeInteger;
 
 const addPositiveIntegers = (a: PositiveInteger, b: PositiveInteger): PositiveInteger =>
   castPositiveInteger(prismPositiveInteger.reverseGet(a) + prismPositiveInteger.reverseGet(b));
@@ -112,19 +112,16 @@ const assertDenormalizedProbabilitiesTotal = (denormalizedProbabilitiesTotal: Po
   }
 }
 
-// https://en.wikipedia.org/wiki/Non-linear_preferential_attachment
-export const nlpa =
-  (alpha = castDecimal0n(1)) =>
+export const nlpa_ = (alpha = castDecimal0n(1)) =>
   ({
-    totalNodes,
-    getDegree,
-    totalEdges,
-  }: {
+     totalNodes,
+     getDegree,
+     totalEdges,
+   }: {
     totalNodes: PositiveInteger;
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
-  }) =>
-  (rngState: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
+  }) => (seed: Random01) => {
     const ZERO_CONNECTION_NODE_FAIRNESS = castNonNegativeInteger(1); // signifies that we want to give the nodes with 0 connections some chance
     const nodeFairnessK = prismNonNegativeInteger.reverseGet(ZERO_CONNECTION_NODE_FAIRNESS);
     const totalNodes_ = prismPositiveInteger.reverseGet(totalNodes);
@@ -152,8 +149,7 @@ export const nlpa =
         `panic! denormalizedProbabilities.length !== totalNodes_: ${denormalizedProbabilities.length} !== ${totalNodes_}`
       );
     }
-    const [randomValue, s1] = random(rngState);
-    const randomValue_ = prismRandom01.reverseGet(randomValue);
+    const randomValue_ = prismRandom01.reverseGet(seed);
     const randomValueDenormalized = castDecimal1n(randomValue_ * denormalizedProbabilitiesTotal_ + 1);
     const randomValueDenormalizedAndAlfaScaled = castDecimal1n(
       prismDecimal1n.reverseGet(randomValueDenormalized) ** prismDecimal0n.reverseGet(alpha)
@@ -165,19 +161,37 @@ export const nlpa =
       // TODO better way to do this?
       cumulativeDenormalizedProbability = castDecimal0n(
         prismDecimal0n.reverseGet(cumulativeDenormalizedProbability) +
-          Math.pow(prismPositiveInteger.reverseGet(denormalizedProbabilities[i]), prismNonNegative.reverseGet(alpha))
+        Math.pow(prismPositiveInteger.reverseGet(denormalizedProbabilities[i]), prismNonNegative.reverseGet(alpha))
       );
       if (
         prismNonNegative.reverseGet(randomValueDenormalizedAndAlfaScaled) <=
         prismDecimal0n.reverseGet(cumulativeDenormalizedProbability)
       ) {
-        return [castIndex(i), s1];
+        return castIndex(i);
       }
     }
 
     // TODO check this, this is what chatgpt says; note that randomValue never == 1
     // In the rare case that the randomValue is close to 1, return the last node
-    return [castIndex(totalNodes_ - 1), s1];
+    return castIndex(totalNodes_ - 1);
+  }
+
+// https://en.wikipedia.org/wiki/Non-linear_preferential_attachment
+export const nlpa =
+  (alpha = castDecimal0n(1)) =>
+  ({
+    totalNodes,
+    getDegree,
+    totalEdges,
+  }: {
+    totalNodes: PositiveInteger;
+    getDegree: DegreeFunction;
+    totalEdges: NonNegativeInteger;
+  }) =>
+  (rngState: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
+    const [randomValue, rngState1] = random(rngState);
+    const nodeIndex = nlpa_(alpha)({ totalNodes, getDegree, totalEdges })(randomValue);
+    return [nodeIndex, rngState1];
   };
 
 export const defBiasedDistribution =

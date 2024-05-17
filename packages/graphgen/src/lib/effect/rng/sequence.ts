@@ -1,9 +1,26 @@
 import { Effect, Context, Layer, Stream, Sink, pipe, Chunk, Clock, HashMap, Option } from 'effect';
 import prand from 'pure-rand';
 import { v4 } from 'uuid';
-import { monotonicFactory } from 'ulidx';
-
-
+import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
+import { NonNegative } from 'newtype-ts/lib/NonNegative';
+import { PositiveInteger } from 'newtype-ts/lib/PositiveInteger';
+import { NonNegativeInteger } from 'newtype-ts/lib/NonNegativeInteger';
+import { DegreeFunction, nlpa_ } from '../../distribution';
+import { castRandom01 } from '@firfi/utils/rng';
+import {
+  addEdge,
+  addNode,
+  defaultSettings,
+  defaultSettingsInput,
+  GraphGeneratorSettingsInput, link_,
+  paramsFromSettings
+} from '../../index';
+import { castIndex, castListLength, prismIndex, prismListLength } from '@firfi/utils/list/prisms';
+import { isNone } from 'fp-ts/Option';
+import { absurd, flow } from 'fp-ts/function';
+import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
+import { scaleNLPAHeterogeneity } from '../../barabasiAlbert';
+import { GraphStreamOp } from '@firfi/graphgen/types';
 
 export class Random extends Context.Tag("Random")<
   Random,
@@ -80,7 +97,6 @@ export const uuidForIndexEffect = (uuidEffect: Effect.Effect<string, never, Rand
     const uuid = yield* uuidEffect;
     const res = uuidMemory.put(i, uuid);
     if (res !== 'ok') {
-      // TODO Defect?
       throw new Error(`uuidForIndexEffect: unexpected ${res}`);
     }
     return uuid;
@@ -96,6 +112,74 @@ export const uuidForPairEffect = (uuidEffect: Effect.Effect<string, never, Rando
   const y = yield* generate(j);
   return [x, y] as const;
 });
+
+export const nlpaEffect = (alpha: NonNegative) =>
+  ({
+     totalNodes,
+     getDegree,
+     totalEdges,
+   }: {
+    totalNodes: PositiveInteger;
+    getDegree: DegreeFunction;
+    totalEdges: NonNegativeInteger;
+  })  => random01Effect.pipe(Effect.map(castRandom01), Effect.map(nlpa_(alpha)({
+    totalEdges,
+    totalNodes,
+    getDegree
+  })));
+
+export const graphStream = (settings: GraphGeneratorSettingsInput = defaultSettingsInput) => {
+  const { edgeCount, gravitate: _gravitate/*TODO*/, nodeCount } = paramsFromSettings({ ...defaultSettings, ...settings });
+  const scaledNLPAHeterogeneity = scaleNLPAHeterogeneity(settings.heterogeneity || defaultSettings.heterogeneity);
+  const totalEdges = edgeCount;
+  const totalEdges_ = prismListLength.reverseGet(edgeCount);
+  return Stream.unfoldEffect({graph: new AdjacencyList(), nextVertexId: castIndex(0), totalEdges, edgesLeft: totalEdges}, (s): Effect.Effect<Option.Option<[GraphStreamOp, typeof s]>, never, Random> => {
+    const getEdgesLeft = () => castListLength(totalEdges_ - s.graph.numEdges());
+    return Effect.gen(function* () {
+      if (prismListLength.reverseGet(getEdgesLeft()) <
+        0) return Option.none();
+      // again, reactive streams would be nice here
+      // eslint-disable-next-line no-constant-condition
+      const r = link_(s)({
+        targetNodeCount: nodeCount,
+        targetEdgeCount: edgeCount,
+      })(flow(
+        (l: Pick<AdjacencyList, 'numVertices' | 'numEdges' | 'degree'> /*TODO NonEmpty version?*/) => ({
+          totalEdges: castNonNegativeInteger(l.numEdges()),
+          totalNodes: castPositiveInteger(l.numVertices()),
+          getDegree: flow(prismIndex.reverseGet, l.degree.bind(l), castNonNegativeInteger),
+        }),
+        nlpa_(scaledNLPAHeterogeneity)
+      ))([castRandom01(yield* random01Effect), castRandom01(yield* random01Effect), castRandom01(yield* random01Effect)]);
+      if (isNone(r)) return Option.none();
+      const ops = r.value;
+      for (const op of ops) {
+        switch (op.op) {
+          case 'addNode':
+            addNode(s.graph)(op.id);
+            s.nextVertexId = castIndex(prismIndex.reverseGet(op.id) + 1);
+            // return Option.some([op, { edgesLeft: getEdgesLeft(), totalEdges }]);
+            return Option.some([op, { ...s, edgesLeft: getEdgesLeft(), totalEdges }]);
+          case 'addEdge':
+            addEdge(s.graph)(op.from, op.to);
+            // return Option.some([op, { edgesLeft: getEdgesLeft(), totalEdges }]);
+            return Option.some([op, { ...s, edgesLeft: getEdgesLeft(), totalEdges }]);
+          default:
+            absurd(op);
+        }
+      }
+      throw new Error('unreachable');
+    })
+  });
+}
+
+/*
+(l: Pick<AdjacencyList, 'numVertices' | 'numEdges' | 'degree'>) => ({
+  totalEdges: castNonNegativeInteger(l.numEdges()),
+  totalNodes: castPositiveInteger(l.numVertices()),
+  getDegree: flow(prismIndex.reverseGet, l.degree.bind(l), castNonNegativeInteger),
+}),
+ */
 
 // const program = Stream.repeatEffect(uuidEffect);
 const program = Stream.range(1, 10).pipe(Stream.concat(Stream.range(1, 10))).pipe(Stream.rechunk(2)).pipe(Stream.chunks).pipe(Stream.flatMap(c => uuidForPairEffect(uuidEffect)(Chunk.unsafeGet(0)(c), Chunk.unsafeGet(1)(c))));
