@@ -21,6 +21,8 @@ import { absurd, flow } from 'fp-ts/function';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
 import { scaleNLPAHeterogeneity } from '../../barabasiAlbert';
 import { GraphStreamOp } from '@firfi/graphgen/types';
+import { intTo01 } from '@firfi/utils/number/decimal01/utils';
+import { castInteger } from '@firfi/utils/number/integer';
 
 export class Random extends Context.Tag("Random")<
   Random,
@@ -78,7 +80,7 @@ export const randomIntEffect = Effect.gen(function* () {
 });
 
 // scale the random number to [0, 1); no negatives
-export const random01Effect = Effect.map(randomIntEffect, n => (n >>> 0) / 0x100000000);
+export const random01Effect = Effect.map(randomIntEffect, flow(castInteger, intTo01));
 
 export const random0255Effect = Effect.map(random01Effect, n => Math.floor(n * 256));
 
@@ -182,9 +184,9 @@ export const graphStream = (settings: GraphGeneratorSettingsInput = defaultSetti
  */
 
 // const program = Stream.repeatEffect(uuidEffect);
-const program = Stream.range(1, 10).pipe(Stream.concat(Stream.range(1, 10))).pipe(Stream.rechunk(2)).pipe(Stream.chunks).pipe(Stream.flatMap(c => uuidForPairEffect(uuidEffect)(Chunk.unsafeGet(0)(c), Chunk.unsafeGet(1)(c))));
+// const program = Stream.range(1, 10).pipe(Stream.concat(Stream.range(1, 10))).pipe(Stream.rechunk(2)).pipe(Stream.chunks).pipe(Stream.flatMap(c => uuidForPairEffect(uuidEffect)(Chunk.unsafeGet(0)(c), Chunk.unsafeGet(1)(c))));
 
-const prints = Stream.run(program, Sink.forEach(r => Effect.sync(() => console.log(r))));
+const prints = Stream.run(graphStream(), Sink.forEach(r => Effect.sync(() => console.log(r))));
 
 const runnable = Effect.provide(prints, Layer.merge(Random.Live(42), UuidMemory.Live()));
 

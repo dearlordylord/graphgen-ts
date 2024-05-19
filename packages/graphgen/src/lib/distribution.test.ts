@@ -4,12 +4,13 @@ import { rngStateFromSeed } from '@firfi/utils/rng/seed/seed';
 import * as RA from 'fp-ts/ReadonlyArray';
 import * as ST from 'fp-ts/State';
 import { pipe } from 'fp-ts/function';
-import { State as RngState } from 'seedrandom';
 import { isoSeed } from '@firfi/utils/rng/seed/iso';
 import { castDecimal01 } from '@firfi/utils/number/decimal01/prism';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
 import { Index } from '@firfi/utils/list/types';
 import { prismIndex } from '@firfi/utils/list/prisms';
+import { hash } from '@firfi/utils/string';
+import { RngState } from './types';
 
 const noll = castDecimal01(0);
 const nollR = castRandom01(0);
@@ -19,7 +20,7 @@ const one = castDecimal01(1);
 const oneE = castDecimal01(0.9999999999999998);
 const oneR = castRandom01(1 - Number.EPSILON);
 
-const seed = rngStateFromSeed(isoSeed.from('seed1'));
+const seed = rngStateFromSeed(isoSeed.from(hash('seed1')));
 
 describe('distribution', () => {
   describe('barabasiAlbert', () => {
@@ -33,7 +34,7 @@ describe('distribution', () => {
           return castNonNegativeInteger(n_ === 420 ? 99999 : 0);
         },
       });
-      const seed0 = rngStateFromSeed(isoSeed.from('seed'));
+      const seed0 = rngStateFromSeed(isoSeed.from(hash('seed1')));
       expect(ba(seed0)[0]).toBe(castNonNegativeInteger(420));
     });
   });
@@ -59,14 +60,17 @@ describe('distribution', () => {
       expect(biasedDistribution(oneR)).toBe(oneE);
     });
     it('returns a result biased towards 1 when K is close to 1', () => {
+      const [a1, a2, a3] = [0.6, 0.75, 0.999];
       const [b1, b2, b3] = pipe(
-        RA.fromArray([0.6, 0.75, 0.999]),
-        RA.map((n) => (seed: RngState.Arc4) => defBiasedDistribution(castDecimal01(n))(middleR)(seed)),
+        RA.fromArray([a1, a2, a3]),
+        RA.map((k) => (seed: RngState) => defBiasedDistribution(castDecimal01(k))(middleR)(seed)),
         ST.sequenceArray,
         ST.map(RA.map(prismRandom01.reverseGet))
       )(seed)[0];
-      expect(b3).toBeGreaterThan(b2);
-      expect(b2).toBeGreaterThan(b1);
+      // and sequence is not guaranteed
+      expect(b1).toBeGreaterThan(prismRandom01.reverseGet(middleR));
+      expect(b2).toBeGreaterThan(prismRandom01.reverseGet(middleR));
+      expect(b3).toBeGreaterThan(prismRandom01.reverseGet(middleR));
     });
   });
 });

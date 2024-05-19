@@ -1,4 +1,3 @@
-import { State as RngState } from 'seedrandom';
 import { PositiveInteger, prismPositiveInteger } from 'newtype-ts/lib/PositiveInteger';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
 import { apply, constant, flow, pipe } from 'fp-ts/function';
@@ -26,6 +25,7 @@ import { Semigroup } from 'fp-ts/Semigroup';
 import { Eq } from 'fp-ts/Eq';
 import { curry2 } from 'fp-ts-std/Function';
 import { not } from 'fp-ts/Predicate';
+import { RngState } from '@firfi/graphgen/types';
 
 type AdvantageOrDisadvantage = 'advantage' | 'disadvantage';
 
@@ -40,7 +40,7 @@ export const castTornDecimal01 = castToPrism(prismTornDecimal01)(
 const closestFloatTo1 = 1.0 - Number.EPSILON;
 
 // inner usage; in a public API we'd probably allow Decimal01 with 0.5 value
-const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState.Arc4, Random01> => {
+const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState, Random01> => {
   const K = prismTornDecimal01.reverseGet(K_);
   const advOrDisadv: AdvantageOrDisadvantage =
     K < 0.5
@@ -52,10 +52,10 @@ const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState.Arc4, Rando
         })();
   const mapMinMaxArgs = (f: typeof Math.max & typeof Math.min) => (a: Random01, b: Random01) =>
     castRandom01(f(prismRandom01.reverseGet(a), prismRandom01.reverseGet(b)));
-  const [reducer, unit] = match(advOrDisadv)
-    .with('advantage', constant([mapMinMaxArgs(Math.max), castRandom01(0)] as const))
-    .with('disadvantage', constant([mapMinMaxArgs(Math.min), castRandom01(closestFloatTo1)] as const))
-    .exhaustive();
+  const [reducer, unit] = pipe(match(advOrDisadv)
+    .with('advantage', constant([Math.max, 0] as const))
+    .with('disadvantage', constant([Math.min, closestFloatTo1] as const))
+    .exhaustive(), ([f, m]) => [mapMinMaxArgs(f), castRandom01(m)] as const);
   const times = mapDiscreet(castDecimal01(Math.abs(prismTornDecimal01.reverseGet(K_) - 0.5) * 2));
   return pipe(
     times,
@@ -188,7 +188,7 @@ export const nlpa =
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
   }) =>
-  (rngState: RngState.Arc4): [NodeIndex, RngState.Arc4] => {
+  (rngState: RngState): [NodeIndex, RngState] => {
     const [randomValue, rngState1] = random(rngState);
     const nodeIndex = nlpa_(alpha)({ totalNodes, getDegree, totalEdges })(randomValue);
     return [nodeIndex, rngState1];
@@ -196,7 +196,7 @@ export const nlpa =
 
 export const defBiasedDistribution =
   (K_: Decimal01) =>
-  (n_: Random01): State<RngState.Arc4, Random01> => {
+  (n_: Random01): State<RngState, Random01> => {
     const K = prismDecimal01.reverseGet(K_);
     const n = prismRandom01.reverseGet(n_);
     const hardcoded = pipe(

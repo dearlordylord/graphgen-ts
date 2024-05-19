@@ -3,10 +3,10 @@ import { State } from 'fp-ts/State';
 import { apply, flow, pipe } from 'fp-ts/function';
 import * as A from 'fp-ts/Array';
 import { v4 } from 'uuid';
-import { State as RngState } from 'seedrandom';
 import { prismRandom0255, random0255 } from '../rng/random255';
+import { RngState } from '@firfi/graphgen/types';
 
-export type AnonymizedIdentityState = { identityMap: IdentityMap; rng: RngState.Arc4 };
+export type AnonymizedIdentityState = { identityMap: IdentityMap; rng: RngState };
 export const getRandomIdentityForNumber = (id: number): State<AnonymizedIdentityState, string> =>
   flow(
     ST.gets(({ identityMap, rng }) => {

@@ -10,3 +10,6 @@ export type GraphStreamOp<Id = Index> = { op: 'addNode'; id: Id } | { op: 'addEd
 
 export const BranchingModelSchema = S.literal(...BRANCHING_MODELS);
 export type BranchingModel = S.To<typeof BranchingModelSchema>;
+
+// using purerand xoroshiro128plus
+export type RngState = readonly number[];
