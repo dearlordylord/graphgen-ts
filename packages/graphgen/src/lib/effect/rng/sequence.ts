@@ -268,6 +268,8 @@ export const graphStream = (
           )
         )(state0);
 
+        random.dive(state1);
+
         if (isNone(r)) return Option.none();
         const ops = r.value;
         for (const op of ops) {
@@ -293,6 +295,8 @@ export const graphStream = (
         }
         throw new Error('unreachable');
       });
+
+
     }
   );
 };
