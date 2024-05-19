@@ -21,6 +21,7 @@ import { BiMap } from '@rimbu/bimap';
 import { fromEntries } from '@firfi/utils/object';
 import { assertExists } from '@firfi/utils/index';
 import { hash } from '@firfi/utils/string';
+import { random } from '@firfi/utils/rng/random';
 
 const getRandomIdentityForIndex = flow(
   prismIndex.reverseGet,
@@ -77,7 +78,7 @@ export const getRandomGraph =
     pipe(
       seed,
       rngStateFromSeed,
-      defGenerateGraph(settings),
+      defGenerateGraph(settings)(random),
       STR.map(
         ([op, state, seed0]) =>
           ((uuidState: AnonymizedIdentityState) => {

@@ -421,6 +421,12 @@ export const link =
   (gravitate: Gravitate_): State<RngState, Option<GraphStreamOp[]>> =>
     link_(linkState)(linkConfig)(gravitate)(random);
 
+export type GraphGeneratorItem = [
+  GraphStreamOp,
+  { edgesLeft: ListLength; totalEdges: ListLength },
+  RngState
+];
+
 export const defGenerateGraph = (
   settings: GraphGeneratorSettingsInput | undefined
 ) =>
@@ -432,16 +438,14 @@ export const defGenerateGraph = (
     ({ edgeCount, gravitate, nodeCount }) => {
       const totalEdges = edgeCount;
       const totalEdges_ = prismListLength.reverseGet(edgeCount);
-      // recursion substituted with a loop since we have a ton of those calls
-      // still doesn't help much; applicatives of fp-ts are recursive too; left here for illustration though
-      return (rngState_: RngState) =>
+      return (random: State<RngState, Random01>) =>
+
+      (rngState_: RngState) =>
         function* (): Generator<
-          [
-            GraphStreamOp,
-            { edgesLeft: ListLength; totalEdges: ListLength },
-            RngState
-          ]
+          GraphGeneratorItem
         > {
+          // recursion substituted with a loop since we have a ton of those calls
+          // still doesn't help much; applicatives of fp-ts are recursive too; left here for illustration though
           let rngState = rngState_;
           const graph = new AdjacencyList();
           const linkState: LinkState = {
@@ -455,11 +459,11 @@ export const defGenerateGraph = (
           while (
             prismListLength.reverseGet(getEdgesLeft()) >=
             0 /*eq to while true but here for expressiveness and assertion*/
-          ) {
-            const [r, rngState2] = link(linkState)({
+            ) {
+            const [r, rngState2] = link_(linkState)({
               targetNodeCount: nodeCount,
               targetEdgeCount: edgeCount,
-            })(gravitate)(rngState);
+            })(gravitate)(random)(rngState);
             rngState = rngState2;
             if (isNone(r)) return;
             const ops = r.value;
