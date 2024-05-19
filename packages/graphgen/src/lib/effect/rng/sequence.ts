@@ -186,6 +186,9 @@ const prints = Stream.run(
   Sink.forEach((r) => Effect.sync(() => console.log(r)))
 );
 
+// TODO now, let's construct graph (assign uuids and all that)
+// TODO then, substitute the main graph generator with that
+// TODO change newtypes with effect schemas
 const runnable = prints.pipe(
   Effect.provideService(Random, Random.Live(42)),
   Effect.provideService(UuidMemory, UuidMemory.Live())
