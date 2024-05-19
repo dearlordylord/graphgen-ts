@@ -9,7 +9,7 @@ import {
   Clock,
   HashMap,
   Option,
-  FiberSet,
+  FiberSet, Runtime
 } from 'effect';
 import prand from 'pure-rand';
 import { v4 } from 'uuid';
@@ -18,7 +18,7 @@ import { NonNegative } from 'newtype-ts/lib/NonNegative';
 import { PositiveInteger } from 'newtype-ts/lib/PositiveInteger';
 import { NonNegativeInteger } from 'newtype-ts/lib/NonNegativeInteger';
 import { DegreeFunction, nlpa, nlpa_ } from '../../distribution';
-import { castRandom01 } from '@firfi/utils/rng';
+import { castRandom01, Random01 } from '@firfi/utils/rng';
 import {
   addEdge,
   addNode,
@@ -58,30 +58,19 @@ export class Random extends Context.Tag('Random')<
   Random,
   {
     readonly next: Effect.Effect<number>;
-    surface: () => RngState /*TODO something with scope*/;
-    dive: (state: RngState) => void;
   }
 >() {
   static Live = (seed: number) => {
     let rng = pipe(seed, castSeed, stateFromSeed, randomFromState);
-    return Layer.succeed(
-      Random,
-      Random.of({
-        next: Effect.sync(() => {
-          const [next, rng1] = rng.next();
-          rng = rng1;
-          return next;
-        }),
-        surface: () =>
-          assertExists(
-            rng.getState,
-            'xoroshiro supposed to have getState()'
-          ).bind(rng)(),
-        dive: (state) => {
-          rng = prand.xoroshiro128plus.fromState(state);
-        },
-      })
-    );
+    console.log('rng construction');
+    return {
+      next: Effect.sync(() => {
+        const [next, rng1] = rng.next();
+        rng = rng1;
+        console.log('nextnext', next);
+        return next;
+      }),
+    }
   };
 }
 
@@ -97,28 +86,25 @@ export class UuidMemory extends Context.Tag('UuidMemory')<
 >() {
   static Live = () => {
     let map = HashMap.empty<number, string>();
-    return Layer.succeed(
-      UuidMemory,
-      UuidMemory.of({
-        put: (id, v) => {
-          const existing = HashMap.get(id)(map);
-          switch (existing._tag) {
-            case 'None': {
-              map = HashMap.set(id, v)(map);
-              return 'ok';
-            }
-            case 'Some': {
-              if (existing.value === v) {
-                return 'exists';
-              } else {
-                return 'existsDifferent';
-              }
+    return {
+      put: (id: number, v: string) => {
+        const existing = HashMap.get(id)(map);
+        switch (existing._tag) {
+          case 'None': {
+            map = HashMap.set(id, v)(map);
+            return 'ok';
+          }
+          case 'Some': {
+            if (existing.value === v) {
+              return 'exists';
+            } else {
+              return 'existsDifferent';
             }
           }
-        },
-        get: (id) => HashMap.get(id)(map),
-      })
-    );
+        }
+      },
+      get: (id: number) => HashMap.get(id)(map),
+    };
   };
 }
 
@@ -132,6 +118,8 @@ export const random01Effect = Effect.map(
   randomIntEffect,
   flow(castInteger, intTo01)
 );
+
+export const random01TypedEffect = Effect.map(random01Effect, castRandom01);
 
 export const random0255Effect = Effect.map(random01Effect, (n) =>
   Math.floor(n * 256)
@@ -178,37 +166,6 @@ export const uuidForPairEffect =
       return [x, y] as const;
     });
 
-export const nlpaEffect =
-  (alpha: NonNegative) =>
-  ({
-    totalNodes,
-    getDegree,
-    totalEdges,
-  }: {
-    totalNodes: PositiveInteger;
-    getDegree: DegreeFunction;
-    totalEdges: NonNegativeInteger;
-  }) =>
-    random01Effect.pipe(
-      Effect.map(castRandom01),
-      Effect.flatMap((r) =>
-        Effect.gen(function* () {
-          const random = yield* Random;
-          const state0 = random.surface();
-
-          const [i, state1] = nlpa(alpha)({
-            totalEdges,
-            totalNodes,
-            getDegree,
-          })(state0);
-
-          random.dive(state1);
-
-          return i;
-        })
-      )
-    );
-
 export const graphStream = (
   settings: GraphGeneratorSettingsInput = defaultSettingsInput
 ) => {
@@ -241,11 +198,13 @@ export const graphStream = (
       return Effect.gen(function* () {
         if (prismListLength.reverseGet(getEdgesLeft()) < 0)
           return Option.none();
-        const random = yield* Random;
-        const state0 = random.surface();
+        // recommendation https://discord.com/channels/795981131316985866/1241860145286348860/1241861616686071890
+        const runtime = yield* Effect.runtime<Random>()
+        const runSync = Runtime.runSync(runtime);
+        const getRandom = (_stateStub: RngState): [Random01, RngState] => [runSync(random01TypedEffect), _stateStub];
         // again, reactive streams would be nice here
         // eslint-disable-next-line no-constant-condition
-        const [r, state1] = link(s)({
+        const [r, state1] = link_(s)({
           targetNodeCount: nodeCount,
           targetEdgeCount: edgeCount,
         })(
@@ -266,9 +225,7 @@ export const graphStream = (
             }),
             nlpa_(scaledNLPAHeterogeneity)
           )
-        )(state0);
-
-        random.dive(state1);
+        )(getRandom)('a' as any);
 
         if (isNone(r)) return Option.none();
         const ops = r.value;
@@ -317,9 +274,9 @@ const prints = Stream.run(
   Sink.forEach((r) => Effect.sync(() => console.log(r)))
 );
 
-const runnable = Effect.provide(
-  prints,
-  Layer.merge(Random.Live(42), UuidMemory.Live())
+const runnable = prints.pipe(
+  Effect.provideService(Random, Random.Live(42)),
+  Effect.provideService(UuidMemory, UuidMemory.Live())
 );
 
 Effect.runPromise(runnable);
