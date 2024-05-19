@@ -5,5 +5,8 @@ import { assertExists } from '@firfi/utils/index';
 
 export const rngStateFromSeed = (seed: Seed): RngState => {
   const rng = purerand.xoroshiro128plus(prismSeed.reverseGet(seed));
-  return assertExists(rng.getState, 'getState expected on xoroshiro128plus').bind(rng)();
-}
+  return assertExists(
+    rng.getState,
+    'getState expected on xoroshiro128plus'
+  ).bind(rng)();
+};

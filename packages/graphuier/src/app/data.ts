@@ -8,7 +8,7 @@ import { useEffect, useReducer, useRef } from 'react';
 import hash from 'object-hash';
 import {
   AdjacencyListWithMeta,
-  FinalizedGraphEvent
+  FinalizedGraphEvent,
 } from '@firfi/graphgen/getRandomGraph';
 import { absurd } from 'fp-ts/function';
 import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
@@ -37,7 +37,10 @@ export type GraphData = {
 };
 
 export const dataToGraphData = (d: Data): GraphData => {
-  const nodes = Object.keys(d.nodes).map((id) => ({ id, type: d.nodes[id]!.type }));
+  const nodes = Object.keys(d.nodes).map((id) => ({
+    id,
+    type: d.nodes[id]!.type,
+  }));
   const links = Object.keys(d.edges).map((id) => ({
     id,
     source: d.edges[id]!.start,
@@ -54,23 +57,33 @@ export type Settings = {
   branchingModel?: BranchingModel;
 };
 
-const fetchGraph = (seed: Seed, { heterogeneity, density, nodes, branchingModel }: Settings = {}) =>
+const fetchGraph = (
+  seed: Seed,
+  { heterogeneity, density, nodes, branchingModel }: Settings = {}
+) =>
   fetch(
     `${assertNonEmptyOrNA(
       import.meta.env.VITE_GRAPH_API_BASE_URI,
       'VITE_GRAPH_API_BASE_URI not provided'
     )}/api/v1/discoball/random/${seed}?${new URLSearchParams({
-      ...(heterogeneity !== undefined ? { heterogeneity: `${heterogeneity}` } : {}),
+      ...(heterogeneity !== undefined
+        ? { heterogeneity: `${heterogeneity}` }
+        : {}),
       ...(density !== undefined ? { density: `${density}` } : {}),
       ...(nodes !== undefined ? { nodes: `${nodes}` } : {}),
-      ...(branchingModel !== undefined ? { branchingModel: `${branchingModel}` } : {}),
+      ...(branchingModel !== undefined
+        ? { branchingModel: `${branchingModel}` }
+        : {}),
     })}`
   )
     .then((r) => r.json())
     .then((r) => r as Data)
     .then(dataToGraphData);
 
-export const useGraphQuery = (seed: Seed, { heterogeneity, density, nodes, branchingModel }: Settings = {}) =>
+export const useGraphQuery = (
+  seed: Seed,
+  { heterogeneity, density, nodes, branchingModel }: Settings = {}
+) =>
   useQuery(['graph', seed, branchingModel, heterogeneity, density, nodes], () =>
     fetchGraph(seed, {
       heterogeneity,
@@ -79,10 +92,6 @@ export const useGraphQuery = (seed: Seed, { heterogeneity, density, nodes, branc
       branchingModel,
     })
   );
-//
-// export const useGraphLocalGenerator = (seed: string, settings: Settings = {}) => {
-//   getRandomGraph(isoSeed.from('seed'))(settings);
-// };
 
 type UseLocalGraphState = { data?: AdjacencyListWithMeta } & (
   | {
@@ -94,10 +103,10 @@ type UseLocalGraphState = { data?: AdjacencyListWithMeta } & (
       isLoading: false;
       loaded: false;
     }
-    | {
+  | {
       isLoading: false;
       loaded: true;
-}
+    }
 );
 
 const reducer = (
@@ -141,8 +150,10 @@ const reducer = (
 
 const simulateInitialLoadError = false;
 
-const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGraphState & {
-  refresh: () => void
+const useLocalGraph_ = (
+  ...params: Parameters<typeof useGraphQuery>
+): UseLocalGraphState & {
+  refresh: () => void;
 } => {
   const [seed, settings = {}] = params;
   const [state, dispatch] = useReducer(reducer, {
@@ -154,10 +165,14 @@ const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGr
   const refreshTagRef = useRef(refreshTag);
 
   useEffect(() => {
-    if (simulateInitialLoadError && refreshTagRef.current === refreshTag) return;
-    const worker = new Worker(new URL('./graphgen-webworker.worker.ts', import.meta.url), {
-      type: 'module',
-    });
+    if (simulateInitialLoadError && refreshTagRef.current === refreshTag)
+      return;
+    const worker = new Worker(
+      new URL('./graphgen-webworker.worker.ts', import.meta.url),
+      {
+        type: 'module',
+      }
+    );
     worker.postMessage({
       seed,
       settings,
@@ -175,7 +190,9 @@ const useLocalGraph_ = (...params: Parameters<typeof useGraphQuery>): UseLocalGr
       } else if (e.data.type === 'end') {
         // lil' misbehaviour here ("deserialisation")
         const al = new AdjacencyList(
-          e.data.graph[0].adjacency.map((v, i) => v.map((v) => [i, v] as [number, number])).flat(1)
+          e.data.graph[0].adjacency
+            .map((v, i) => v.map((v) => [i, v] as [number, number]))
+            .flat(1)
         );
         dispatch({ type: 'data', data: [al, e.data.graph[1]] });
       } else {

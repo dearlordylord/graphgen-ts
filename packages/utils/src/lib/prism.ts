@@ -9,5 +9,11 @@ export const castToPrism =
     pipe(
       v,
       p.getOption,
-      getFromOptionC(typeof e === 'string' ? e : e ? e(v) : `Invalid cast, value not in prism: ${v}`)
+      getFromOptionC(
+        typeof e === 'string'
+          ? e
+          : e
+          ? e(v)
+          : `Invalid cast, value not in prism: ${v}`
+      )
     );

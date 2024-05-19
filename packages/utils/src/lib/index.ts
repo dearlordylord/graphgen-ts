@@ -7,5 +7,7 @@ export const assertExists = <T>(x: T | null | undefined, msg?: string): T => {
   return x;
 };
 
-export const isNonExistent = <T>(x: T | null | undefined): x is null | undefined => !isExistent(x);
+export const isNonExistent = <T>(
+  x: T | null | undefined
+): x is null | undefined => !isExistent(x);
 export const isExistent = <T>(x: T | null | undefined): x is T => !isNil(x);

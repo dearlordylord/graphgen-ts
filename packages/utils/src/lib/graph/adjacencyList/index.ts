@@ -90,7 +90,9 @@ export class AdjacencyList implements IGraph {
     const res: string[] = [];
     for (let i = 0, n = adjacency.length; i < n; i++) {
       if (adjacency[i]) {
-        res.push(`${i}: [${[...adjacency[i]!].sort((a, b) => a - b).join(', ')}]`);
+        res.push(
+          `${i}: [${[...adjacency[i]!].sort((a, b) => a - b).join(', ')}]`
+        );
       }
     }
     return res.join('\n');
@@ -105,6 +107,4 @@ export class AdjacencyList implements IGraph {
   }
 }
 
-
 type Nullable<T> = T | null | undefined;
-

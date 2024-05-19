@@ -1,4 +1,7 @@
-import { PositiveInteger, prismPositiveInteger } from 'newtype-ts/lib/PositiveInteger';
+import {
+  PositiveInteger,
+  prismPositiveInteger,
+} from 'newtype-ts/lib/PositiveInteger';
 import { Decimal01 } from '../decimal01/types';
 import { NonNegativeInteger } from 'newtype-ts/lib/NonNegativeInteger';
 import { prismDecimal01 } from '../decimal01/prism';

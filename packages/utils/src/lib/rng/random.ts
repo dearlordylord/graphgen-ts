@@ -14,6 +14,17 @@ export const random = flow(
   TU.fst,
   (rng) => {
     const [next, rng1] = rng.next();
-    return [castRandom01(intTo01(castInteger/*accommodate to initial expectations of 01 from previously used library*/(next))), assertExists(rng1.getState, 'xoroshiro supposed to have getState()').bind(rng1)()] as [Random01, RngState]
-  },
+    return [
+      castRandom01(
+        intTo01(
+          castInteger(
+            /*accommodate to initial expectations of 01 from previously used library*/ next
+          )
+        )
+      ),
+      assertExists(rng1.getState, 'xoroshiro supposed to have getState()').bind(
+        rng1
+      )(),
+    ] as [Random01, RngState];
+  }
 ) satisfies State<RngState, Random01>;

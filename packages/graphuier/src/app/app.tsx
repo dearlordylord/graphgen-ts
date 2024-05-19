@@ -1,30 +1,41 @@
 import { ForceGraph2D } from 'react-force-graph';
 import styles from './app.module.scss';
 import { GraphData, useLocalGraph } from './data';
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import useUuidV4 from 'react-uuid-hook';
 import hash from 'object-hash';
-import { castHeterogeneity, prismHeterogeneity } from '@firfi/utils/graph/heterogeneity/prism';
+import { hash as hashString } from '@firfi/utils/string';
+import {
+  castHeterogeneity,
+  prismHeterogeneity,
+} from '@firfi/utils/graph/heterogeneity/prism';
 import { castDensity, prismDensity } from '@firfi/utils/graph/density/prism';
 import { castListLength, prismListLength } from '@firfi/utils/list/prisms';
-import { isoSeed } from '@firfi/utils/rng/seed/iso';
 import { assertExists } from '@firfi/utils/index';
-import { GraphUrlParamsSetters, GraphUrlParamsStrict, QUERY_KEYS, useGraphQueryParams } from './useQueryParams';
+import {
+  GraphUrlParamsSetters,
+  GraphUrlParamsStrict,
+  QUERY_KEYS,
+  useGraphQueryParams,
+} from './useQueryParams';
 import { BRANCHING_MODELS } from '@firfi/graphgen/constants';
-import * as A from 'fp-ts/Array';
-import { flow, pipe } from 'fp-ts/function';
-import * as NEA from 'fp-ts/NonEmptyArray';
-import * as R from 'fp-ts/Record';
-import { castNonEmptyArray } from '@firfi/utils/array';
 import {
   LAYOUT_MEMO_INDEX,
   LAYOUT_MEMO_INDEX_LABELED,
   memoParamsIsomorphism,
   PresetLabel,
   serializeMemoParams,
-  useLayoutMemo
+  useLayoutMemo,
 } from './memos';
 import { capitalize } from 'lodash';
+import { castSeed, prismSeed } from '@firfi/utils/rng/seed/types';
 
 type Coords = {
   x: number;
@@ -32,7 +43,10 @@ type Coords = {
   z: number;
 };
 
-type ForceGraphMethods = Exclude<Exclude<Parameters<typeof ForceGraph2D>[0]['ref'], undefined>['current'], undefined>;
+type ForceGraphMethods = Exclude<
+  Exclude<Parameters<typeof ForceGraph2D>[0]['ref'], undefined>['current'],
+  undefined
+>;
 
 // Hook
 const useDebounce = <T,>(value: T, delay: number) => {
@@ -59,50 +73,67 @@ const useDebounce = <T,>(value: T, delay: number) => {
 // TODO dry
 const useHeterogeneity = () => {
   const { heterogeneity, setHeterogeneity } = useGraphQueryParams();
-  const [value, set] = useState(heterogeneity === null ? castHeterogeneity(0.3) : heterogeneity);
-  return [value, useCallback((v: typeof value) => {
-    set(v);
-    setHeterogeneity(v);
-  }, [])] as const;
+  const [value, set] = useState(
+    heterogeneity === null ? castHeterogeneity(0.3) : heterogeneity
+  );
+  return [
+    value,
+    useCallback((v: typeof value) => {
+      set(v);
+      setHeterogeneity(v);
+    }, []),
+  ] as const;
 };
 
 const useSeed = () => {
   const { seed, setSeed } = useGraphQueryParams();
-  const [value, set] = useState(seed === null ? isoSeed.from('seed') : seed);
-  return [value, useCallback((v: typeof value) => {
-    set(v);
-    setSeed(v);
-  }, [])] as const;
+  const [value, set] = useState(
+    seed === null ? castSeed(hashString('seed')) : seed
+  );
+  return [
+    value,
+    useCallback((v: typeof value) => {
+      set(v);
+      setSeed(v);
+    }, []),
+  ] as const;
 };
 
 const useDensity = () => {
   const { density, setDensity } = useGraphQueryParams();
-  const [value, set] = useState(density === null ? castDensity(0): density);
-  return [value, useCallback((v: typeof value) => {
-    set(v);
-    setDensity(v);
-  }, [])] as const;
+  const [value, set] = useState(density === null ? castDensity(0) : density);
+  return [
+    value,
+    useCallback((v: typeof value) => {
+      set(v);
+      setDensity(v);
+    }, []),
+  ] as const;
 };
 
 const useNodesCount = () => {
   const { nodes, setNodes } = useGraphQueryParams();
   const [value, set] = useState(nodes === null ? castListLength(10) : nodes);
-  return [value, useCallback((v: typeof value) => {
-    set(v);
-    setNodes(v);
-  }, [])] as const;
+  return [
+    value,
+    useCallback((v: typeof value) => {
+      set(v);
+      setNodes(v);
+    }, []),
+  ] as const;
 };
 
 const useBranchingModel = () => {
   const { model, setModel } = useGraphQueryParams();
   const [value, set] = useState(model === null ? BRANCHING_MODELS[0] : model);
-  return [value, useCallback((v: typeof value) => {
-    set(v);
-    setModel(v);
-  }, [])] as const;
+  return [
+    value,
+    useCallback((v: typeof value) => {
+      set(v);
+      setModel(v);
+    }, []),
+  ] as const;
 };
-
-
 
 const useGraphSettings = (): GraphUrlParamsStrict & GraphUrlParamsSetters => {
   const [seed, setSeed] = useSeed();
@@ -110,54 +141,82 @@ const useGraphSettings = (): GraphUrlParamsStrict & GraphUrlParamsSetters => {
   const [density, setDensity] = useDensity();
   const [nodes, setNodes] = useNodesCount();
   const [branchingModel, setBranchingModel] = useBranchingModel();
-  return useMemo(() => ({
-    seed,
-    setSeed,
-    heterogeneity,
-    setHeterogeneity,
-    density,
-    setDensity,
-    nodes,
-    setNodes,
-    model: branchingModel,
-    setModel: setBranchingModel,
-  }), [seed, setSeed, heterogeneity, setHeterogeneity, density, setDensity, nodes, setNodes, branchingModel, setBranchingModel]);
+  return useMemo(
+    () => ({
+      seed,
+      setSeed,
+      heterogeneity,
+      setHeterogeneity,
+      density,
+      setDensity,
+      nodes,
+      setNodes,
+      model: branchingModel,
+      setModel: setBranchingModel,
+    }),
+    [
+      seed,
+      setSeed,
+      heterogeneity,
+      setHeterogeneity,
+      density,
+      setDensity,
+      nodes,
+      setNodes,
+      branchingModel,
+      setBranchingModel,
+    ]
+  );
 };
 
-const useMemoizedLayout = (graphSettings: GraphUrlParamsStrict, graphData: GraphData): {
-  loaded: false,
-} | {
-  loaded: true,
-  data: readonly [GraphData, boolean]
-} => {
+const useMemoizedLayout = (
+  graphSettings: GraphUrlParamsStrict,
+  graphData: GraphData
+):
+  | {
+      loaded: false;
+    }
+  | {
+      loaded: true;
+      data: readonly [GraphData, boolean];
+    } => {
   const { layoutMemo, loading, loaded } = useLayoutMemo(graphSettings);
-  const defaultResponse = useMemo(() => [graphData, false] as const, [graphData]);
+  const defaultResponse = useMemo(
+    () => [graphData, false] as const,
+    [graphData]
+  );
   const enhancedResponse = useMemo(() => {
     if (layoutMemo === null) return defaultResponse; // can be null
-    return [{
-      ...graphData,
-      nodes: graphData.nodes.map(n => {
-        const data = assertExists(layoutMemo[n.id as keyof typeof layoutMemo]);
-        return {
-          ...n,
-          x: data.x,
-          y: data.y,
-          vx: data.vx,
-          vy: data.vy,
-        };
-      })
-    }, true] as const
-  }, [graphData, defaultResponse])
-  if (loading || !loaded) return {
-    loaded: false,
-  }
+    return [
+      {
+        ...graphData,
+        nodes: graphData.nodes.map((n) => {
+          const data = assertExists(
+            layoutMemo[n.id as keyof typeof layoutMemo]
+          );
+          return {
+            ...n,
+            x: data.x,
+            y: data.y,
+            vx: data.vx,
+            vy: data.vy,
+          };
+        }),
+      },
+      true,
+    ] as const;
+  }, [graphData, defaultResponse]);
+  if (loading || !loaded)
+    return {
+      loaded: false,
+    };
   return {
     loaded: true,
     data: enhancedResponse,
   };
-}
+};
 
-const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>)=> {
+const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>) => {
   const DEBOUNCE = 500;
   const {
     seed,
@@ -200,7 +259,7 @@ const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>)=> {
     isLoading: isLoading || seed !== seedDebounced,
     loaded: g.loaded,
     progress: g.isLoading ? g.progress : undefined,
-    refresh: g.refresh
+    refresh: g.refresh,
   };
 };
 
@@ -218,7 +277,10 @@ const Settings = ({
   branchingModel,
   setBranchingModel,
   branchingModels,
-}: Omit<ReturnType<typeof useGraphData>, 'data' | 'isLoading' | 'loaded' | 'progress' | 'refresh'>) => {
+}: Omit<
+  ReturnType<typeof useGraphData>,
+  'data' | 'isLoading' | 'loaded' | 'progress' | 'refresh'
+>) => {
   const [seedInputId] = useUuidV4();
   const [heterogeneityInputId] = useUuidV4();
   const [densityInputId] = useUuidV4();
@@ -227,12 +289,20 @@ const Settings = ({
   return (
     <div className={styles.settings}>
       <label htmlFor={seedInputId}>Seed</label>
-      <input id={seedInputId} value={isoSeed.get(seed)} onChange={(e) => setSeed(isoSeed.from(e.target.value))} />
+      <input
+        id={seedInputId}
+        value={prismSeed.reverseGet(seed)}
+        onChange={(e) => setSeed(castSeed(parseInt(e.target.value, 10)))}
+      />
       <label htmlFor={branchingModelInputId}>Branching model</label>
       <select
         id={branchingModelInputId}
         value={branchingModel}
-        onChange={(e) => setBranchingModel(assertExists(BRANCHING_MODELS.find((m) => m === e.target.value)))}
+        onChange={(e) =>
+          setBranchingModel(
+            assertExists(BRANCHING_MODELS.find((m) => m === e.target.value))
+          )
+        }
       >
         {branchingModels.map((m) => (
           <option key={m} value={m}>
@@ -248,7 +318,9 @@ const Settings = ({
         max="1"
         step="0.01"
         value={prismHeterogeneity.reverseGet(heterogeneity)}
-        onChange={(e) => setHeterogeneity(castHeterogeneity(parseFloat(e.target.value)))}
+        onChange={(e) =>
+          setHeterogeneity(castHeterogeneity(parseFloat(e.target.value)))
+        }
       />
       <label htmlFor={densityInputId}>Density</label>
       <input
@@ -277,23 +349,31 @@ const Settings = ({
 const useMemoStringFromUrl = () => {
   const queryParams = useGraphSettings();
   const setters = useGraphQueryParams();
-  const memoString = useMemo(() => memoParamsIsomorphism.to(queryParams), [queryParams]);
-  const set = useCallback((params: GraphUrlParamsStrict) => {
-    QUERY_KEYS.forEach((k) => {
-      const f = setters[`set${capitalize(k) as Capitalize<typeof k>}`];
-      f(params[k] as any/*TODO better typecheck for this foreach, how?*/);
-    });
-  }, [setters]);
+  const memoString = useMemo(
+    () => memoParamsIsomorphism.to(queryParams),
+    [queryParams]
+  );
+  const set = useCallback(
+    (params: GraphUrlParamsStrict) => {
+      QUERY_KEYS.forEach((k) => {
+        const f = setters[`set${capitalize(k) as Capitalize<typeof k>}`];
+        f(params[k] as any /*TODO better typecheck for this foreach, how?*/);
+      });
+    },
+    [setters]
+  );
   return [memoString, set] as const;
-}
+};
 
 const PresetSelector = () => {
   const [memoStringFromUrl, setUrl] = useMemoStringFromUrl();
-  type Memo = typeof LAYOUT_MEMO_INDEX[number];
+  type Memo = (typeof LAYOUT_MEMO_INDEX)[number];
   const presets = LAYOUT_MEMO_INDEX_LABELED;
   const detectPreset = useCallback((): Memo | null => {
-    const preset = Object.entries(presets).find(([preset, _]) => preset === memoStringFromUrl);
-    return preset ? preset[0] as Memo : null;
+    const preset = Object.entries(presets).find(
+      ([preset, _]) => preset === memoStringFromUrl
+    );
+    return preset ? (preset[0] as Memo) : null;
   }, [memoStringFromUrl]);
   const [preset, setPreset] = useState<Memo | null>(detectPreset());
   const [presetInputId] = useUuidV4();
@@ -302,16 +382,16 @@ const PresetSelector = () => {
     if (preset) {
       setUrl(memoParamsIsomorphism.from(preset));
     }
-  }, [])
+  }, []);
   return (
     <div className={styles.presetSelector}>
       <label htmlFor={presetInputId}>Preset</label>
       <select
         id={presetInputId}
         value={preset || ''}
-        onChange={(e) => set(e.target.value ? e.target.value as Memo : null)}
+        onChange={(e) => set(e.target.value ? (e.target.value as Memo) : null)}
       >
-        <option value={""}>None</option>
+        <option value={''}>None</option>
         {Object.entries(presets).map(([p, label]) => (
           <option key={p} value={p as Memo}>
             {label}
@@ -320,12 +400,19 @@ const PresetSelector = () => {
       </select>
     </div>
   );
-}
+};
 
 const App = () => {
   const [ref, setRef] = useState<ForceGraphMethods>();
   const graphSettings = useGraphSettings();
-  const { data: data_, isLoading, loaded, progress, refresh, ...controls } = useGraphData(graphSettings);
+  const {
+    data: data_,
+    isLoading,
+    loaded,
+    progress,
+    refresh,
+    ...controls
+  } = useGraphData(graphSettings);
   const data = data_ || empty;
   const graphHash = useMemo(() => hash(data), [data]);
   const dataMemoized = useMemo(() => data, [graphHash]);
@@ -342,35 +429,51 @@ const App = () => {
     //   return rr;
     // })), o => JSON.stringify(o, null, 2), console.log.bind(console));
   }, [ref, graphSettings, !memoRes.loaded || memoRes.data[0]]);
-  const handleRefresh = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    refresh();
-  }, [refresh]);
-  if (!memoRes.loaded || !loaded) return <div>
-    <div>
-      Loading...
-    </div>
-    <a href="#" onClick={handleRefresh}>Refresh if takes a while!</a>
-  </div>;
+  const handleRefresh = useCallback(
+    (e: MouseEvent) => {
+      e.preventDefault();
+      refresh();
+    },
+    [refresh]
+  );
+  if (!memoRes.loaded || !loaded)
+    return (
+      <div>
+        <div>Loading...</div>
+        <a href="#" onClick={handleRefresh}>
+          Refresh if takes a while!
+        </a>
+      </div>
+    );
   return (
     <div className={styles.app}>
       <div className={styles.settingsAndHash}>
         <Settings {...controls} />
         {isLoading ? <div>Loading...</div> : <div>Hash: {graphHash}</div>}
-        {progress !== undefined ? <progress value={progress} max={100} /> : null}
+        {progress !== undefined ? (
+          <progress value={progress} max={100} />
+        ) : null}
         <PresetSelector />
       </div>
-      {!memoRes.loaded ? <a href="#" onClick={handleRefresh}>Refresh if takes a while!</a> : <ForceGraph2D
-        onEngineStop={onStop}
-        cooldownTicks={memoRes.data[1] ? 0 : 100}
-        nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
-        linkColor={(e) => ((e as any).type === 'settlement' ? 'yellow' : 'white')}
-        graphData={memoRes.data[0]}
-        linkDirectionalArrowLength={3.5}
-        linkDirectionalArrowRelPos={1}
-        linkCurvature={0.25}
-        nodeLabel={(n) => `${n.id!}`}
-      />}
+      {!memoRes.loaded ? (
+        <a href="#" onClick={handleRefresh}>
+          Refresh if takes a while!
+        </a>
+      ) : (
+        <ForceGraph2D
+          onEngineStop={onStop}
+          cooldownTicks={memoRes.data[1] ? 0 : 100}
+          nodeColor={(n) => ((n as any).type === 'user' ? 'red' : 'blue')}
+          linkColor={(e) =>
+            (e as any).type === 'settlement' ? 'yellow' : 'white'
+          }
+          graphData={memoRes.data[0]}
+          linkDirectionalArrowLength={3.5}
+          linkDirectionalArrowRelPos={1}
+          linkCurvature={0.25}
+          nodeLabel={(n) => `${n.id!}`}
+        />
+      )}
     </div>
   );
 };
