@@ -7,7 +7,7 @@ import { range } from 'fp-ts/NonEmptyArray';
 import * as ST from 'fp-ts/State';
 import { State } from 'fp-ts/State';
 import * as O from 'fp-ts/Option';
-import { castRandom01, prismRandom01, Random01 } from '@firfi/utils/rng';
+import { castRandom01, prismRandom01, Random01, unwrapDecimal01, wrapDecimal01 } from '@firfi/utils/rng';
 import { match } from 'ts-pattern';
 import { Newtype, prism } from 'newtype-ts';
 import { castDecimal01, prismDecimal01 } from '@firfi/utils/number/decimal01/prism';
@@ -40,7 +40,7 @@ export const castTornDecimal01 = castToPrism(prismTornDecimal01)(
 const closestFloatTo1 = 1.0 - Number.EPSILON;
 
 // inner usage; in a public API we'd probably allow Decimal01 with 0.5 value
-const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState, Random01> => {
+const defDnDBiasedDistribution = (K_: TornDecimal01) => (n_: Decimal01) => <RNGSTATE = RngState>(random: State<RNGSTATE, Random01>): State<RNGSTATE, Random01> => {
   const K = prismTornDecimal01.reverseGet(K_);
   const advOrDisadv: AdvantageOrDisadvantage =
     K < 0.5
@@ -62,6 +62,8 @@ const defDnDBiasedDistribution = (K_: TornDecimal01): State<RngState, Random01> 
     prismNonNegativeInteger.reverseGet,
     (n) => Array.from({ length: n }),
     RA.map(() => random),
+    // include the initial element, otherwise it's pure randomness!
+    RA.append(ST.of(wrapDecimal01(n_))),
     ST.sequenceArray,
     ST.map(RA.reduce(unit, reducer))
   );
@@ -121,7 +123,7 @@ export const nlpa_ = (alpha = castDecimal0n(1)) =>
     totalNodes: PositiveInteger;
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
-  }) => (seed: Random01) => {
+  }) => <RNGSTATE = RngState>(random: State<RNGSTATE, Random01>): State<RNGSTATE, NodeIndex> => (rngState) => {
     const ZERO_CONNECTION_NODE_FAIRNESS = castNonNegativeInteger(1); // signifies that we want to give the nodes with 0 connections some chance
     const nodeFairnessK = prismNonNegativeInteger.reverseGet(ZERO_CONNECTION_NODE_FAIRNESS);
     const totalNodes_ = prismPositiveInteger.reverseGet(totalNodes);
@@ -149,7 +151,8 @@ export const nlpa_ = (alpha = castDecimal0n(1)) =>
         `panic! denormalizedProbabilities.length !== totalNodes_: ${denormalizedProbabilities.length} !== ${totalNodes_}`
       );
     }
-    const randomValue_ = prismRandom01.reverseGet(seed);
+    const [randomValue, rngState1] = random(rngState);
+    const randomValue_ = prismRandom01.reverseGet(randomValue);
     const randomValueDenormalized = castDecimal1n(randomValue_ * denormalizedProbabilitiesTotal_ + 1);
     const randomValueDenormalizedAndAlfaScaled = castDecimal1n(
       prismDecimal1n.reverseGet(randomValueDenormalized) ** prismDecimal0n.reverseGet(alpha)
@@ -167,13 +170,13 @@ export const nlpa_ = (alpha = castDecimal0n(1)) =>
         prismNonNegative.reverseGet(randomValueDenormalizedAndAlfaScaled) <=
         prismDecimal0n.reverseGet(cumulativeDenormalizedProbability)
       ) {
-        return castIndex(i);
+        return [castIndex(i), rngState1];
       }
     }
 
     // TODO check this, this is what chatgpt says; note that randomValue never == 1
     // In the rare case that the randomValue is close to 1, return the last node
-    return castIndex(totalNodes_ - 1);
+    return [castIndex(totalNodes_ - 1), rngState1];
   }
 
 // https://en.wikipedia.org/wiki/Non-linear_preferential_attachment
@@ -188,24 +191,23 @@ export const nlpa =
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
   }) =>
-  (rngState: RngState): [NodeIndex, RngState] => {
-    const [randomValue, rngState1] = random(rngState);
-    const nodeIndex = nlpa_(alpha)({ totalNodes, getDegree, totalEdges })(randomValue);
-    return [nodeIndex, rngState1];
-  };
+    nlpa_(alpha)({ totalNodes, getDegree, totalEdges })(random);
 
-export const defBiasedDistribution =
+export const defBiasedDistribution_ =
   (K_: Decimal01) =>
-  (n_: Random01): State<RngState, Random01> => {
+  (n_: Decimal01) =>
+  (random: State<RngState, Random01>): State<RngState, Decimal01> => {
     const K = prismDecimal01.reverseGet(K_);
-    const n = prismRandom01.reverseGet(n_);
+    const n = prismDecimal01.reverseGet(n_);
     const hardcoded = pipe(
       K === 0 ? 0 : K === 1 ? closestFloatTo1 : K === 0.5 ? n : null,
       O.fromNullable,
-      O.map(castRandom01)
+      O.map(castDecimal01)
     );
     return pipe(
       hardcoded,
-      O.fold(() => defDnDBiasedDistribution(castTornDecimal01(K)), ST.of)
+      O.fold(() => pipe(defDnDBiasedDistribution(castTornDecimal01(K))(n_)(random), ST.map(unwrapDecimal01)), ST.of)
     );
   };
+
+export const defBiasedDistribution = (K: Decimal01) => (n: Decimal01) => defBiasedDistribution_(K)(n)(random);

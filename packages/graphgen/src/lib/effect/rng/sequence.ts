@@ -1,35 +1,41 @@
-import { Effect, Context, Layer, Stream, Sink, pipe, Chunk, Clock, HashMap, Option } from 'effect';
+import { Effect, Context, Layer, Stream, Sink, pipe, Chunk, Clock, HashMap, Option, FiberSet } from 'effect';
 import prand from 'pure-rand';
 import { v4 } from 'uuid';
 import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
 import { NonNegative } from 'newtype-ts/lib/NonNegative';
 import { PositiveInteger } from 'newtype-ts/lib/PositiveInteger';
 import { NonNegativeInteger } from 'newtype-ts/lib/NonNegativeInteger';
-import { DegreeFunction, nlpa_ } from '../../distribution';
+import { DegreeFunction, nlpa, nlpa_ } from '../../distribution';
 import { castRandom01 } from '@firfi/utils/rng';
 import {
   addEdge,
   addNode,
   defaultSettings,
   defaultSettingsInput,
-  GraphGeneratorSettingsInput, link_,
-  paramsFromSettings
+  GraphGeneratorSettingsInput, link, link_, paramsFromSettings_
 } from '../../index';
 import { castIndex, castListLength, prismIndex, prismListLength } from '@firfi/utils/list/prisms';
 import { isNone } from 'fp-ts/Option';
-import { absurd, flow } from 'fp-ts/function';
+import { absurd, apply, flow } from 'fp-ts/function';
 import { castNonNegativeInteger, castPositiveInteger } from '@firfi/utils/positiveInteger';
 import { scaleNLPAHeterogeneity } from '../../barabasiAlbert';
-import { GraphStreamOp } from '@firfi/graphgen/types';
+import { GraphStreamOp, RngState } from '@firfi/graphgen/types';
 import { intTo01 } from '@firfi/utils/number/decimal01/utils';
 import { castInteger } from '@firfi/utils/number/integer';
+import { assertExists } from '@firfi/utils/index';
+import { rngStateFromSeed } from '@firfi/utils/rng/seed/seed';
+import { castSeed } from '@firfi/utils/rng/seed/types';
+
+// to eliminate the connaiscence of random generator algorithms
+const randomFromState = (state: RngState) => prand.xoroshiro128plus.fromState(state);
+const stateFromSeed = rngStateFromSeed;
 
 export class Random extends Context.Tag("Random")<
   Random,
-  { readonly next: Effect.Effect<number> }
+  { readonly next: Effect.Effect<number>, surface: () => RngState /*TODO something with scope*/, dive: (state: RngState) => void }
 >() {
   static Live = (seed: number) => {
-    let rng = prand.xoroshiro128plus(seed);
+    let rng = pipe(seed, castSeed, stateFromSeed, randomFromState);
     return Layer.succeed(
       Random,
       Random.of({
@@ -37,7 +43,11 @@ export class Random extends Context.Tag("Random")<
           const [next, rng1] = rng.next();
           rng = rng1;
           return next;
-        })
+        }),
+        surface: () => assertExists(rng.getState, 'xoroshiro supposed to have getState()').bind(rng)(),
+        dive: (state) => {
+          rng = prand.xoroshiro128plus.fromState(state);
+        }
       })
     )
   }
@@ -124,14 +134,24 @@ export const nlpaEffect = (alpha: NonNegative) =>
     totalNodes: PositiveInteger;
     getDegree: DegreeFunction;
     totalEdges: NonNegativeInteger;
-  })  => random01Effect.pipe(Effect.map(castRandom01), Effect.map(nlpa_(alpha)({
-    totalEdges,
-    totalNodes,
-    getDegree
+  })  => random01Effect.pipe(Effect.map(castRandom01), Effect.flatMap(r => Effect.gen(function* () {
+    const random = yield* Random;
+    const state0 = random.surface();
+
+    const [i, state1] = nlpa(alpha)({
+      totalEdges,
+      totalNodes,
+      getDegree
+    })(state0);
+
+    random.dive(state1);
+
+    return i;
+
   })));
 
 export const graphStream = (settings: GraphGeneratorSettingsInput = defaultSettingsInput) => {
-  const { edgeCount, gravitate: _gravitate/*TODO*/, nodeCount } = paramsFromSettings({ ...defaultSettings, ...settings });
+  const { edgeCount, gravitate: gravitate, nodeCount } = paramsFromSettings_({ ...defaultSettings, ...settings });
   const scaledNLPAHeterogeneity = scaleNLPAHeterogeneity(settings.heterogeneity || defaultSettings.heterogeneity);
   const totalEdges = edgeCount;
   const totalEdges_ = prismListLength.reverseGet(edgeCount);
@@ -140,9 +160,11 @@ export const graphStream = (settings: GraphGeneratorSettingsInput = defaultSetti
     return Effect.gen(function* () {
       if (prismListLength.reverseGet(getEdgesLeft()) <
         0) return Option.none();
+      const random = yield* Random;
+      const state0 = random.surface();
       // again, reactive streams would be nice here
       // eslint-disable-next-line no-constant-condition
-      const r = link_(s)({
+      const [r, state1] = link(s)({
         targetNodeCount: nodeCount,
         targetEdgeCount: edgeCount,
       })(flow(
@@ -151,8 +173,9 @@ export const graphStream = (settings: GraphGeneratorSettingsInput = defaultSetti
           totalNodes: castPositiveInteger(l.numVertices()),
           getDegree: flow(prismIndex.reverseGet, l.degree.bind(l), castNonNegativeInteger),
         }),
-        nlpa_(scaledNLPAHeterogeneity)
-      ))([castRandom01(yield* random01Effect), castRandom01(yield* random01Effect), castRandom01(yield* random01Effect)]);
+        nlpa_(scaledNLPAHeterogeneity),
+      ))(state0);
+
       if (isNone(r)) return Option.none();
       const ops = r.value;
       for (const op of ops) {
