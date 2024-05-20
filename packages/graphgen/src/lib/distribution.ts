@@ -203,7 +203,7 @@ export const nlpa_ =
     const totalNodesFairnessModificator = castNonNegativeInteger(
       totalNodes_ * nodeFairnessK
     );
-    // number of edges ONCE cause the graph is directed
+    // number of edges ONCE, because the graph is directed
     const sumOfDegrees_ = prismNonNegativeInteger.reverseGet(totalEdges);
     // because floats would lose some precision and would make the sum !== 1
     const denormalizedProbabilities = pipe(
@@ -304,7 +304,7 @@ export const nlpa =
 export const defBiasedDistribution_ =
   (K_: Decimal01) =>
   (n_: Decimal01) =>
-  (random: State<RngState, Random01>): State<RngState, Decimal01> => {
+  <RNGSTATE = RngState>(random: State<RNGSTATE, Random01>): State<RNGSTATE, Decimal01> => {
     const K = prismDecimal01.reverseGet(K_);
     const n = prismDecimal01.reverseGet(n_);
     const hardcoded = pipe(

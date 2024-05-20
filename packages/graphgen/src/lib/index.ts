@@ -20,7 +20,7 @@ import {
   unwrapDecimal01,
   wrapDecimal01,
 } from '@firfi/utils/rng';
-import { defBiasedDistribution, nlpa, nlpa_ } from './distribution';
+import { defBiasedDistribution, defBiasedDistribution_, nlpa, nlpa_ } from './distribution';
 import { AdjacencyList } from '@firfi/utils/graph/adjacencyList';
 import {
   castHeterogeneity,
@@ -86,27 +86,22 @@ export const unwrapGravity = flow(prismGravity.reverseGet, castDecimal01);
 const heterogeneityToGravity = (heterogeneity: Heterogeneity): Gravity =>
   castGravity(prismHeterogeneity.reverseGet(heterogeneity));
 
-const gravitatedRandom_ = flow(
+const gravitatedRandom_ = <RNGSTATE = RngState>() => flow(
   unwrapGravity,
-  defBiasedDistribution,
+  defBiasedDistribution_,
   (f) =>
-    (random: State<RngState, Random01>): State<RngState, Random01> =>
-    (state0: RngState) => {
+    (random: State<RNGSTATE, Random01>): State<RNGSTATE, Random01> =>
+    (state0: RNGSTATE) => {
       const [n, state1] = random(state0);
-      return pipe(f(unwrapDecimal01(n)), ST.map(wrapDecimal01), apply(state1));
+      return pipe(f(unwrapDecimal01(n))(random), ST.map(wrapDecimal01), apply(state1));
     }
-) satisfies Reader<
-  Gravity,
-  Reader<State<RngState, Random01>, State<RngState, Random01>>
->;
+);
 
-const gravitatedScaledRandom_ = pipe(
-  flow(
-    RE.asks<
-      (n: Random01) => Index,
-      Reader<Gravity, Reader<State<RngState, Random01>, State<RngState, Index>>>
-    >((f) => pipe(gravitatedRandom_, RE.map(RE.map(ST.map(f)))))
-  ),
+const gravitatedScaledRandom_ = <RNGSTATE = RngState>() => pipe(
+  RE.asks<
+    (n: Random01) => Index,
+    Reader<Gravity, Reader<State<RNGSTATE, Random01>, State<RNGSTATE, Index>>>
+  >((f) => pipe(gravitatedRandom_<RNGSTATE>(), RE.map(RE.map(ST.map(f))))),
   RE.local(
     flow(
       prismListLength.reverseGet,
@@ -116,7 +111,7 @@ const gravitatedScaledRandom_ = pipe(
   )
 ) satisfies Reader<
   ListLength,
-  Reader<Gravity, Reader<State<RngState, Random01>, State<RngState, Index>>>
+  Reader<Gravity, Reader<State<RNGSTATE, Random01>, State<RNGSTATE, Index>>>
 >;
 
 const maxEdges = flow(
@@ -125,7 +120,7 @@ const maxEdges = flow(
   castListLength
 );
 
-export const paramsFromSettings_ = (
+export const paramsFromSettings_ = <RNGSTATE = RngState>(
   settings: Settings<BranchingModel | never>
 ) => {
   const {
@@ -164,12 +159,12 @@ export const paramsFromSettings_ = (
 
   const scaledNLPAHeterogeneity = scaleNLPAHeterogeneity(heterogeneity);
 
-  const gravitate: Gravitate_ =
+  const gravitate: Gravitate_<RNGSTATE> =
     branchingModel === DND_BRANCHING_MODEL_NAME
       ? flow(
           (l: Pick<AdjacencyList, 'numVertices'>) => l.numVertices(),
           castListLength,
-          gravitatedScaledRandom_,
+          gravitatedScaledRandom_<RNGSTATE>(),
           apply(heterogeneityToGravity(heterogeneity))
         )
       : flow(
@@ -187,27 +182,24 @@ export const paramsFromSettings_ = (
               castNonNegativeInteger
             ),
           }),
-          nlpa_(scaledNLPAHeterogeneity)
+          nlpa_(scaledNLPAHeterogeneity),
         );
   return { edgeCount, nodeCount: settings.nodes, gravitate };
 };
 
 // TODO gravitate makes no sense for 0 length list
-type Gravitate_ = (
+type Gravitate_<RNGSTATE = RngState> = (
   l: Pick<AdjacencyList, 'numVertices' | 'numEdges' | 'degree'>
-) => (random: ST.State<RngState, Random01>) => ST.State<RngState, Index>;
-type Gravitate = (
-  l: Pick<AdjacencyList, 'numVertices' | 'numEdges' | 'degree'>
-) => ST.State<RngState, Index>;
+) => (random: ST.State<RNGSTATE, Random01>) => ST.State<RNGSTATE, Index>;
 
 // dangeros
 // we could really use reactive streams here and zip them for better composition; implementation with an array is POOP
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const randomUntil =
-  <T>(fs: NonEmptyArray<State<RngState, T>>) =>
+  <T, RNGSTATE = RngState>(fs: NonEmptyArray<State<RNGSTATE, T>>) =>
   (
     filter: (ns: NonEmptyArray<T>) => boolean
-  ): State<RngState, NonEmptyArray<T>> =>
+  ): State<RNGSTATE, NonEmptyArray<T>> =>
     pipe(
       fs,
       NEA.sequence(ST.Applicative),
@@ -296,10 +288,10 @@ const scaledIndexRandom = (
 
 export const genesis_ =
   (linkState: LinkState) =>
-  (gravitate: Gravitate_) =>
+    <RNGSTATE = RngState>(gravitate: Gravitate_<RNGSTATE>) =>
   (
-    random: State<RngState, Random01>
-  ): State<RngState, Option<GraphStreamOp[]>> =>
+    random: State<RNGSTATE, Random01>
+  ): State<RNGSTATE, Option<GraphStreamOp[]>> =>
   (state0) => {
     const { nextVertexId, graph } = linkState;
     const nextVertexId_ = prismIndex.reverseGet(nextVertexId);
@@ -326,16 +318,11 @@ export const genesis_ =
     ];
   };
 
-export const genesis =
-  (linkState: LinkState) =>
-  (gravitate: Gravitate_): State<RngState, Option<GraphStreamOp[]>> =>
-    genesis_(linkState)(gravitate)(random);
-
 const abundance_ =
   (graph: LinkState['graph']) =>
-  (
-    random: State<RngState, Random01>
-  ): State<RngState, Option<GraphStreamOp[]>> =>
+  <RNGSTATE = RngState>(
+    random: State<RNGSTATE, Random01>
+  ): State<RNGSTATE, Option<GraphStreamOp[]>> =>
   (state0) => {
     // TODO optimize, it's n^2 or something, and in the main loop at least n^3
     const incomingCandidates = castNonEmptyArray(
@@ -378,10 +365,10 @@ const abundance = (
 export const link_ =
   (linkState: LinkState) =>
   (linkConfig: LinkConfig) =>
-  (gravitate: Gravitate_) =>
+  <RNGSTATE = RngState>(gravitate: Gravitate_<RNGSTATE>) =>
   (
-    random: State<RngState, Random01>
-  ): State<RngState, Option<GraphStreamOp[]>> => {
+    random: State<RNGSTATE, Random01>
+  ): State<RNGSTATE, Option<GraphStreamOp[]>> => {
     const { graph, nextVertexId } = linkState;
     const { targetNodeCount, targetEdgeCount } = linkConfig;
     const numVertices = castListLength(graph.numVertices()),
@@ -420,28 +407,25 @@ export const link =
   (gravitate: Gravitate_): State<RngState, Option<GraphStreamOp[]>> =>
     link_(linkState)(linkConfig)(gravitate)(random);
 
-export type GraphGeneratorItem = [
+export type GraphGeneratorItem<RNGSTATE = RngState> = [
   GraphStreamOp,
   { edgesLeft: ListLength; totalEdges: ListLength },
-  RngState
+  RNGSTATE
 ];
 
-export const defGenerateGraph = (
+export const defGenerateGraph = <RNGSTATE = RngState>(
   settings: GraphGeneratorSettingsInput | undefined
 ) =>
   pipe(
-    settings,
-    (s) => s || defaultSettingsInput,
-    (s: GraphGeneratorSettingsInput) => ({ ...defaultSettings, ...s }),
-    paramsFromSettings_,
+    paramsFromSettings_<RNGSTATE>({ ...defaultSettings, ...(settings || defaultSettingsInput) }),
     ({ edgeCount, gravitate, nodeCount }) => {
       const totalEdges = edgeCount;
       const totalEdges_ = prismListLength.reverseGet(edgeCount);
-      return (random: State<RngState, Random01>) =>
+      return (random: State<RNGSTATE, Random01>) =>
 
-      (rngState_: RngState) =>
+      (rngState_: RNGSTATE) =>
         function* (): Generator<
-          GraphGeneratorItem
+          GraphGeneratorItem<RNGSTATE>
         > {
           // recursion substituted with a loop since we have a ton of those calls
           // still doesn't help much; applicatives of fp-ts are recursive too; left here for illustration though

@@ -75,14 +75,18 @@ export type GraphStreamElement<RNGSTATE = RngState> = [
 
 const uuidRngSeed = hash('uuidRngSeed');
 
+const identityGeneratorState0 = () => ({
+  identityMap: {},
+  rng: rngStateFromSeed(castSeed(uuidRngSeed)), // we use a new rng for more "stable" uuids generation
+});
+
 export const getRandomGraph =
   (seed: Seed) =>
   <RNGSTATE = RngState>(
     settings: GraphGeneratorSettingsInput
   ) => (random: State<RngState, Random01>): () => Generator<GraphStreamElement<RNGSTATE>> =>
     pipe(
-      seed,
-      rngStateFromSeed,
+      rngStateFromSeed(seed),
       defGenerateGraph(settings)(random),
       mapStream(
         ([op, graphStreamState, rngState]) =>
@@ -90,17 +94,10 @@ export const getRandomGraph =
             // TODO ST.map / .chain
             const [op1, uuidState1] =
               getRandomIdentityForGraphOp(op)(random)(identityState);
-            return [[op1, graphStreamState, rngState], uuidState1] as [[GraphStreamOp<string>, GraphStreamState, RNGSTATE], AnonymizedIdentityState];
+            return [[op1, graphStreamState, rngState], uuidState1] as [GraphStreamElement<RNGSTATE>, AnonymizedIdentityState];
           })
       ),
-      (states) => {
-
-        return applyStatesStream({
-          identityMap: {},
-          rng: rngStateFromSeed(castSeed(uuidRngSeed)), // we use a new rng for more "stable" uuids generation
-        })(states);
-
-      }
+      applyStatesStream(identityGeneratorState0())
     );
 
 export type AdjacencyListWithMeta<M = string /*TODO uuid*/> = readonly [
