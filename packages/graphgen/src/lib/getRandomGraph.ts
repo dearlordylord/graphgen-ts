@@ -152,10 +152,14 @@ const finalizedGraphApiFinalElement = (computationState: FinalizedGraphComputati
   graph: [computationState.adjList, fromEntries(computationState.bimapMeta.toArray())] as const,
 }, computationState]);
 
-const generatedGraphStreamToFinalizedGraphApi = flow(
-  mapStream(generatedGraphStreamElementToFinalizedGraphApiElement),
-  appendStream(finalizedGraphApiFinalElement),
-  applyStatesStream(finalizedGraphComputationState())
-);
+const generatedGraphStreamToFinalizedGraphApi = <RNGSTATE = RngState>(g: () => Generator<GraphStreamElement<RNGSTATE>>) => {
+  const stateMutable = finalizedGraphComputationState(); // warning! I mutate it! this is why it's encapsulated here and isn't flow()
+  return pipe(
+    g,
+    mapStream(generatedGraphStreamElementToFinalizedGraphApiElement),
+    appendStream(finalizedGraphApiFinalElement),
+    applyStatesStream(stateMutable)
+  )
+};
 
 export const getRandomFinalizedGraph = flow(getRandomGraph, RE.map(RE.map(generatedGraphStreamToFinalizedGraphApi)));
