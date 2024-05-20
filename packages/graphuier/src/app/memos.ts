@@ -10,6 +10,7 @@ import { flow, pipe } from 'fp-ts/function';
 import { useEffect, useState } from 'react';
 import * as A from 'fp-ts/Array';
 import { Isomorphism } from 'fp-ts-std/Isomorphism';
+import { hash } from '@firfi/utils/string';
 
 export const MemoParamsSerializedSchema = S.string.pipe(
   S.brand('MemoParamsSerialized')
@@ -74,9 +75,11 @@ const LayoutMemoSchema = S.record(S.string, LayoutMemoNodeSchema);
 
 type LayoutMemo = S.From<typeof LayoutMemoSchema>;
 
+console.log('hash(\'seed2\')', hash('seed2'))
+
 // what files we have - don't make the user going through the network excessively
 export const LAYOUT_MEMO_INDEX_RAW = [
-  'density>0.08|heterogeneity>0.44|model>barabasi-albert|nodes>788|seed>seed2',
+  `density>0.08|heterogeneity>0.44|model>barabasi-albert|nodes>788|seed>seed2`,
   'density>0|heterogeneity>1|model>barabasi-albert|nodes>529|seed>seed22222',
   'density>0|heterogeneity>0|model>barabasi-albert|nodes>529|seed>seed',
   'density>0.15|heterogeneity>0|model>barabasi-albert|nodes>529|seed>seed',

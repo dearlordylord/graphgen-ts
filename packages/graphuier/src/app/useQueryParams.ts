@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { BranchingModel, BranchingModelSchema } from '@firfi/graphgen/types';
 import { Heterogeneity } from '@firfi/utils/graph/heterogeneity/types';
-import { castSeed, prismSeed, Seed } from '@firfi/utils/rng/seed/types';
 import { Density } from '@firfi/utils/graph/density/types';
 import * as RA from 'fp-ts/ReadonlyArray';
 import { flow, pipe } from 'fp-ts/function';
@@ -13,9 +12,7 @@ import {
   Pipe,
   Objects,
   Strings,
-  Booleans,
   Fn,
-  Functions,
   Compose,
 } from 'hotscript';
 import { prismListLength } from '@firfi/utils/list/prisms';
@@ -23,7 +20,6 @@ import { ListLength } from '@firfi/utils/list/types';
 import { Option } from 'fp-ts/Option';
 import * as Struct from 'fp-ts/struct';
 import { sequenceS } from 'fp-ts/Apply';
-import { hash } from '@firfi/utils/string';
 
 export const useQueryParams = (): readonly [
   URLSearchParams,
@@ -81,7 +77,7 @@ export const QUERY_KEYS = [
 ] as const;
 
 export type GraphUrlParamsStrict = {
-  [SEED_KEY]: Seed;
+  [SEED_KEY]: string;
   [MODEL_KEY]: BranchingModel;
   [HETEROGENEITY_KEY]: Heterogeneity;
   [DENSITY_KEY]: Density;
@@ -89,7 +85,7 @@ export type GraphUrlParamsStrict = {
 };
 
 const graphUrlParamsParsers = {
-  [SEED_KEY]: flow(hash, prismSeed.getOption),
+  [SEED_KEY]: S.parseOption(S.string),
   [MODEL_KEY]: S.parseOption(BranchingModelSchema),
   [HETEROGENEITY_KEY]: flow(
     parseFloat,
@@ -189,7 +185,7 @@ export const useGraphQueryParams = (): Res => {
     return {
       ...nonStrictParsers,
       seed: pipe(seed, nonStrictParsers[SEED_KEY]),
-      setSeed: flow(prismSeed.reverseGet, (a) => a.toString(), setSeed),
+      setSeed: setSeed, // string, not Seed; it's whatever arbitrary string a user typed, we can hash it into int (Seed) later
       model: pipe(model, nonStrictParsers[MODEL_KEY]),
       setModel: flow(S.encodeOption(BranchingModelSchema), O.map(setModel)),
       heterogeneity: pipe(heterogeneity, nonStrictParsers[HETEROGENEITY_KEY]),

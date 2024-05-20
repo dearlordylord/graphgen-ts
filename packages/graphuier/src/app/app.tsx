@@ -30,12 +30,14 @@ import {
   LAYOUT_MEMO_INDEX,
   LAYOUT_MEMO_INDEX_LABELED,
   memoParamsIsomorphism,
-  PresetLabel,
-  serializeMemoParams,
   useLayoutMemo,
 } from './memos';
 import { capitalize } from 'lodash';
-import { castSeed, prismSeed } from '@firfi/utils/rng/seed/types';
+import { castSeed, prismSeed, Seed } from '@firfi/utils/rng/seed/types';
+import { flow, pipe } from 'fp-ts/function';
+import { castNonEmptyArray } from '@firfi/utils/array';
+import * as NEA from 'fp-ts/NonEmptyArray';
+import * as R from 'fp-ts/Record';
 
 type Coords = {
   x: number;
@@ -88,7 +90,7 @@ const useHeterogeneity = () => {
 const useSeed = () => {
   const { seed, setSeed } = useGraphQueryParams();
   const [value, set] = useState(
-    seed === null ? castSeed(hashString('seed')) : seed
+    seed === null ? '' : seed
   );
   return [
     value,
@@ -216,6 +218,8 @@ const useMemoizedLayout = (
   };
 };
 
+const seedInputToSeed = flow(hashString, castSeed);
+
 const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>) => {
   const DEBOUNCE = 500;
   const {
@@ -236,7 +240,7 @@ const useGraphData = (graphSettings: ReturnType<typeof useGraphSettings>) => {
   const nodesDebounced = useDebounce(nodes, DEBOUNCE);
   const branchingModelDebounced = useDebounce(branchingModel, DEBOUNCE);
   //const { data, isLoading } = useGraphQuery(seedDebounced, {
-  const g = useLocalGraph(seedDebounced, {
+  const g = useLocalGraph(seedInputToSeed(seedDebounced), {
     heterogeneity: heterogeneityDebounced,
     density: densityDebounced,
     nodes: nodesDebounced,
@@ -291,8 +295,8 @@ const Settings = ({
       <label htmlFor={seedInputId}>Seed</label>
       <input
         id={seedInputId}
-        value={prismSeed.reverseGet(seed)}
-        onChange={(e) => setSeed(castSeed(parseInt(e.target.value, 10)))}
+        value={seed}
+        onChange={(e) => setSeed(e.target.value)}
       />
       <label htmlFor={branchingModelInputId}>Branching model</label>
       <select
@@ -367,6 +371,7 @@ const useMemoStringFromUrl = () => {
 
 const PresetSelector = () => {
   const [memoStringFromUrl, setUrl] = useMemoStringFromUrl();
+  console.log('memoStringFromUrlmemoStringFromUrl', memoStringFromUrl)
   type Memo = (typeof LAYOUT_MEMO_INDEX)[number];
   const presets = LAYOUT_MEMO_INDEX_LABELED;
   const detectPreset = useCallback((): Memo | null => {
@@ -420,14 +425,14 @@ const App = () => {
   const onStop = useCallback(() => {
     if (!memoRes.loaded) return;
     if (memoRes.data[0].nodes.length === 0) return;
-    // pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
-    //   const rr = {...r};
-    //   // @ts-ignore
-    //   delete rr.id;
-    //   // @ts-ignore
-    //   delete rr.__indexColor;
-    //   return rr;
-    // })), o => JSON.stringify(o, null, 2), console.log.bind(console));
+    pipe(memoRes.data[0].nodes, castNonEmptyArray, NEA.groupBy(c => c.id), R.map(flow(NEA.head, r => {
+      const rr = {...r};
+      // @ts-ignore
+      delete rr.id;
+      // @ts-ignore
+      delete rr.__indexColor;
+      return rr;
+    })), o => JSON.stringify(o, null, 2), console.log.bind(console));
   }, [ref, graphSettings, !memoRes.loaded || memoRes.data[0]]);
   const handleRefresh = useCallback(
     (e: MouseEvent) => {
