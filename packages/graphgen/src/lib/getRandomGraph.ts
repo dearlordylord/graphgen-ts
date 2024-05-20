@@ -112,47 +112,50 @@ export type FinalizedGraphEvent =
   | { type: 'step'; streamState: GraphStreamState }
   | { type: 'end'; graph: AdjacencyListWithMeta };
 
-export const getRandomFinalizedGraph =
-  (seed: Seed) =>
-  (settings: GraphGeneratorSettingsInput) => (random: State<RngState, Random01>): () => Generator<FinalizedGraphEvent> => {
-  // I mutate it actually but it's all right here
-    const computationState0 = {
-      adjList: new AdjacencyList(),
-      bimapMeta: BiMap.empty<number, string>(),
-      nextId: 0,
-    }
-    return pipe(
-      getRandomGraph(seed)(settings)(random),
-      mapStream(([op, streamState, _randomState]): State<typeof computationState0, FinalizedGraphEvent> => (computationState) => {
-        if (op.op === 'addNode') {
-          if (computationState.bimapMeta.hasValue(op.id))
-            throw new Error(`panic! duplicate id ${op.id}`);
-          computationState.bimapMeta = computationState.bimapMeta.set(computationState.nextId, op.id);
-          computationState.adjList.addVertex(computationState.nextId);
-          computationState.nextId++;
-        } else if (op.op === 'addEdge') {
-          const from = assertExists(
-            computationState.bimapMeta.getKey(op.from),
-            `panic! missing vertex id ${op.from}`
-          );
-          const to = assertExists(
-            computationState.bimapMeta.getKey(op.to),
-            `panic! missing vertex id ${op.to}`
-          );
-          computationState.adjList.addEdge(from, to);
-        } else {
-          absurd(op);
-          throw new Error('unreachable');
-        }
-        return [{
-          type: 'step' as const,
-          streamState,
-        }, computationState0];
-      }),
-      appendStream((computationState): [FinalizedGraphEvent, typeof computationState0] => ([{
-        type: 'end' as const,
-        graph: [computationState.adjList, fromEntries(computationState.bimapMeta.toArray())] as const,
-      }, computationState])),
-      applyStatesStream(computationState0),
+const finalizedGraphComputationState = () => ({
+  adjList: new AdjacencyList(),
+  bimapMeta: BiMap.empty<number, string>(),
+  nextId: 0,
+});
+
+type FinalizedGraphComputationState = ReturnType<typeof finalizedGraphComputationState>;
+
+const generatedGraphStreamElementToFinalizedGraphApiElement = <RNGSTATE = RngState>([op, streamState, _randomState]: GraphStreamElement<RNGSTATE>): State<FinalizedGraphComputationState, FinalizedGraphEvent> => (computationState) => {
+  if (op.op === 'addNode') {
+    if (computationState.bimapMeta.hasValue(op.id))
+      throw new Error(`panic! duplicate id ${op.id}`);
+    computationState.bimapMeta = computationState.bimapMeta.set(computationState.nextId, op.id);
+    computationState.adjList.addVertex(computationState.nextId);
+    computationState.nextId++;
+  } else if (op.op === 'addEdge') {
+    const from = assertExists(
+      computationState.bimapMeta.getKey(op.from),
+      `panic! missing vertex id ${op.from}`
     );
-  };
+    const to = assertExists(
+      computationState.bimapMeta.getKey(op.to),
+      `panic! missing vertex id ${op.to}`
+    );
+    computationState.adjList.addEdge(from, to);
+  } else {
+    absurd(op);
+    throw new Error('unreachable');
+  }
+  return [{
+    type: 'step' as const,
+    streamState,
+  }, computationState];
+};
+
+const finalizedGraphApiFinalElement = (computationState: FinalizedGraphComputationState): [FinalizedGraphEvent, FinalizedGraphComputationState] => ([{
+  type: 'end' as const,
+  graph: [computationState.adjList, fromEntries(computationState.bimapMeta.toArray())] as const,
+}, computationState]);
+
+const generatedGraphStreamToFinalizedGraphApi = flow(
+  mapStream(generatedGraphStreamElementToFinalizedGraphApiElement),
+  appendStream(finalizedGraphApiFinalElement),
+  applyStatesStream(finalizedGraphComputationState())
+);
+
+export const getRandomFinalizedGraph = flow(getRandomGraph, RE.map(RE.map(generatedGraphStreamToFinalizedGraphApi)));
