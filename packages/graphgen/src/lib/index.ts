@@ -7,7 +7,6 @@ import { absurd, apply, constTrue, flow, pipe } from 'fp-ts/function';
 import * as O from 'fp-ts/Option';
 import { isNone, none, Option, some } from 'fp-ts/Option';
 import * as NEA from 'fp-ts/NonEmptyArray';
-import * as STR from 'fp-ts-stream/Stream';
 import { NonEmptyArray } from 'fp-ts/NonEmptyArray';
 import * as A from 'fp-ts/Array';
 import * as ST from 'fp-ts/State';

@@ -1,18 +1,14 @@
 import { castSeed, Seed } from '@firfi/utils/rng/seed/types';
 import { defGenerateGraph, GraphGeneratorSettingsInput } from './index';
-import * as STR from 'fp-ts-stream/Stream';
 import { GraphStreamOp, RngState } from './types';
 import { absurd, flow, pipe } from 'fp-ts/function';
 import { rngStateFromSeed } from '@firfi/utils/rng/seed/seed';
-import {
-  AnonymizedIdentityState,
-  getRandomIdentityForNumber,
-} from '@firfi/utils/identity/utils';
+import { AnonymizedIdentityState, getRandomIdentityForNumber } from '@firfi/utils/identity/utils';
 import * as ST from 'fp-ts/State';
 import { State } from 'fp-ts/State';
 import * as RE from 'fp-ts/Reader';
-import * as RA from 'fp-ts/ReadonlyArray';
 import { Reader } from 'fp-ts/Reader';
+import * as RA from 'fp-ts/ReadonlyArray';
 import { Index, ListLength } from '@firfi/utils/list/types';
 import { match } from 'ts-pattern';
 import * as A from 'fp-ts/Array';
@@ -22,8 +18,8 @@ import { BiMap } from '@rimbu/bimap';
 import { fromEntries } from '@firfi/utils/object';
 import { assertExists } from '@firfi/utils/index';
 import { hash } from '@firfi/utils/string';
-import { random } from '@firfi/utils/rng/random';
 import { Random01 } from '@firfi/utils/rng';
+import { appendStream, applyStatesStream, mapStream } from '@firfi/utils/stream';
 
 const getRandomIdentityForIndex = flow(
   prismIndex.reverseGet,
@@ -83,34 +79,27 @@ export const getRandomGraph =
   (seed: Seed) =>
   <RNGSTATE = RngState>(
     settings: GraphGeneratorSettingsInput
-  ) => (random: State<RngState, Random01>): STR.Stream<GraphStreamElement<RNGSTATE>> =>
+  ) => (random: State<RngState, Random01>): () => Generator<GraphStreamElement<RNGSTATE>> =>
     pipe(
       seed,
       rngStateFromSeed,
       defGenerateGraph(settings)(random),
-      STR.map(
-        ([op, state, seed0]) =>
-          ((uuidState: AnonymizedIdentityState) => {
+      mapStream(
+        ([op, graphStreamState, rngState]) =>
+          ((identityState: AnonymizedIdentityState) => {
             // TODO ST.map / .chain
             const [op1, uuidState1] =
-              getRandomIdentityForGraphOp(op)(random)(uuidState);
-            return [[op1, state, seed0], uuidState1];
-          }) as State<
-            AnonymizedIdentityState,
-            [GraphStreamOp<string>, GraphStreamState, RNGSTATE]
-          >
+              getRandomIdentityForGraphOp(op)(random)(identityState);
+            return [[op1, graphStreamState, rngState], uuidState1] as [[GraphStreamOp<string>, GraphStreamState, RNGSTATE], AnonymizedIdentityState];
+          })
       ),
       (states) => {
-        // TODO https://github.com/incetarik/fp-ts-stream/issues/3 should be .sequence(ST.Applicative)
-        let state = {
+
+        return applyStatesStream({
           identityMap: {},
           rng: rngStateFromSeed(castSeed(uuidRngSeed)), // we use a new rng for more "stable" uuids generation
-        };
-        return STR.comprehension([states], (s) => {
-          const [r, s1] = s(state);
-          state = s1;
-          return r;
-        });
+        })(states);
+
       }
     );
 
@@ -125,48 +114,45 @@ export type FinalizedGraphEvent =
 
 export const getRandomFinalizedGraph =
   (seed: Seed) =>
-  (settings: GraphGeneratorSettingsInput) => (random: State<RngState, Random01>): STR.Stream<FinalizedGraphEvent> => {
-    const adjList = new AdjacencyList();
-    let bimapMeta = BiMap.empty<number, string>();
-    let nextId = 0;
+  (settings: GraphGeneratorSettingsInput) => (random: State<RngState, Random01>): () => Generator<FinalizedGraphEvent> => {
+  // I mutate it actually but it's all right here
+    const computationState0 = {
+      adjList: new AdjacencyList(),
+      bimapMeta: BiMap.empty<number, string>(),
+      nextId: 0,
+    }
     return pipe(
       getRandomGraph(seed)(settings)(random),
-      (str) =>
-        STR.comprehension([str], (e) => {
-          const [op, streamState, randomState] = e;
-          if (op.op === 'addNode') {
-            if (bimapMeta.hasValue(op.id))
-              throw new Error(`panic! duplicate id ${op.id}`);
-            bimapMeta = bimapMeta.set(nextId, op.id);
-            adjList.addVertex(nextId);
-            nextId++;
-          } else if (op.op === 'addEdge') {
-            const from = assertExists(
-              bimapMeta.getKey(op.from),
-              `panic! missing vertex id ${op.from}`
-            );
-            const to = assertExists(
-              bimapMeta.getKey(op.to),
-              `panic! missing vertex id ${op.to}`
-            );
-            adjList.addEdge(from, to);
-          } else {
-            absurd(op);
-            throw new Error('unreachable');
-          }
-          return {
-            type: 'step' as const,
-            streamState,
-          };
-        }),
-      STR.concatW(
-        pipe(
-          STR.of(undefined),
-          STR.map(() => ({
-            type: 'end' as const,
-            graph: [adjList, fromEntries(bimapMeta.toArray())] as const,
-          }))
-        )
-      )
+      mapStream(([op, streamState, _randomState]): State<typeof computationState0, FinalizedGraphEvent> => (computationState) => {
+        if (op.op === 'addNode') {
+          if (computationState.bimapMeta.hasValue(op.id))
+            throw new Error(`panic! duplicate id ${op.id}`);
+          computationState.bimapMeta = computationState.bimapMeta.set(computationState.nextId, op.id);
+          computationState.adjList.addVertex(computationState.nextId);
+          computationState.nextId++;
+        } else if (op.op === 'addEdge') {
+          const from = assertExists(
+            computationState.bimapMeta.getKey(op.from),
+            `panic! missing vertex id ${op.from}`
+          );
+          const to = assertExists(
+            computationState.bimapMeta.getKey(op.to),
+            `panic! missing vertex id ${op.to}`
+          );
+          computationState.adjList.addEdge(from, to);
+        } else {
+          absurd(op);
+          throw new Error('unreachable');
+        }
+        return [{
+          type: 'step' as const,
+          streamState,
+        }, computationState0];
+      }),
+      appendStream((computationState): [FinalizedGraphEvent, typeof computationState0] => ([{
+        type: 'end' as const,
+        graph: [computationState.adjList, fromEntries(computationState.bimapMeta.toArray())] as const,
+      }, computationState])),
+      applyStatesStream(computationState0),
     );
   };
