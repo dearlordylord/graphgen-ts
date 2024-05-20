@@ -11,6 +11,7 @@ import {
 import * as ST from 'fp-ts/State';
 import { State } from 'fp-ts/State';
 import * as RE from 'fp-ts/Reader';
+import * as RA from 'fp-ts/ReadonlyArray';
 import { Reader } from 'fp-ts/Reader';
 import { Index, ListLength } from '@firfi/utils/list/types';
 import { match } from 'ts-pattern';
@@ -22,6 +23,7 @@ import { fromEntries } from '@firfi/utils/object';
 import { assertExists } from '@firfi/utils/index';
 import { hash } from '@firfi/utils/string';
 import { random } from '@firfi/utils/rng/random';
+import { Random01 } from '@firfi/utils/rng';
 
 const getRandomIdentityForIndex = flow(
   prismIndex.reverseGet,
@@ -29,12 +31,19 @@ const getRandomIdentityForIndex = flow(
 );
 const getRandomIdentityForIndexPair = flow(
   A.map(getRandomIdentityForIndex),
-  A.sequence(ST.Applicative),
-  ST.map(([a, b]) => [a, b])
-) satisfies Reader<
-  [Index, Index],
+  RE.sequenceArray,
+  RE.map(
+    flow(
+      RA.sequence(ST.Applicative),
+      ST.map(([a, b]) => [a, b] as [string, string])
+    )
+  ),
+  a => a,
+
+) satisfies Reader<[Index, Index], Reader<
+  State<RngState, Random01>,
   State<AnonymizedIdentityState, [string, string]>
->;
+>>;
 const getRandomIdentityForGraphOp = flow(
   RE.ask(),
   (op) => match(op),
@@ -42,20 +51,20 @@ const getRandomIdentityForGraphOp = flow(
     m.with({ op: 'addNode' }, (v) =>
       pipe(
         getRandomIdentityForIndex(v.id),
-        ST.map((id) => ({ ...v, id }))
+        RE.map(ST.map((id) => ({ ...v, id })))
       )
     ),
   (m) =>
     m.with({ op: 'addEdge' }, (v) =>
       pipe(
         getRandomIdentityForIndexPair([v.from, v.to]),
-        ST.map(([from, to]) => ({ ...v, from, to }))
+        RE.map(ST.map(([from, to]) => ({ ...v, from, to })))
       )
     ),
   (m) => m.exhaustive()
 ) satisfies Reader<
   GraphStreamOp,
-  State<AnonymizedIdentityState, GraphStreamOp<string>>
+  Reader<State<RngState, Random01>, State<AnonymizedIdentityState, GraphStreamOp<string>>>
 >;
 export type GraphStreamState = {
   edgesLeft: ListLength;
@@ -74,7 +83,7 @@ export const getRandomGraph =
   (seed: Seed) =>
   <RNGSTATE = RngState>(
     settings: GraphGeneratorSettingsInput
-  ): STR.Stream<GraphStreamElement<RNGSTATE>> =>
+  ) => (random: State<RngState, Random01>): STR.Stream<GraphStreamElement<RNGSTATE>> =>
     pipe(
       seed,
       rngStateFromSeed,
@@ -84,7 +93,7 @@ export const getRandomGraph =
           ((uuidState: AnonymizedIdentityState) => {
             // TODO ST.map / .chain
             const [op1, uuidState1] =
-              getRandomIdentityForGraphOp(op)(uuidState);
+              getRandomIdentityForGraphOp(op)(random)(uuidState);
             return [[op1, state, seed0], uuidState1];
           }) as State<
             AnonymizedIdentityState,
@@ -116,12 +125,12 @@ export type FinalizedGraphEvent =
 
 export const getRandomFinalizedGraph =
   (seed: Seed) =>
-  (settings: GraphGeneratorSettingsInput): STR.Stream<FinalizedGraphEvent> => {
+  (settings: GraphGeneratorSettingsInput) => (random: State<RngState, Random01>): STR.Stream<FinalizedGraphEvent> => {
     const adjList = new AdjacencyList();
     let bimapMeta = BiMap.empty<number, string>();
     let nextId = 0;
     return pipe(
-      getRandomGraph(seed)(settings),
+      getRandomGraph(seed)(settings)(random),
       (str) =>
         STR.comprehension([str], (e) => {
           const [op, streamState, randomState] = e;

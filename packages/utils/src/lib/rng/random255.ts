@@ -4,10 +4,12 @@ import {
 } from 'newtype-ts/lib/NonNegativeInteger';
 import { Newtype, prism } from 'newtype-ts';
 import { flow, pipe } from 'fp-ts/function';
-import { prismRandom01 } from './index';
+import { prismRandom01, Random01 } from './index';
 import * as ST from 'fp-ts/State';
 import { castToPrism } from '../prism';
 import { random } from './random';
+import { RngState } from '@firfi/graphgen/types';
+import { State } from 'fp-ts/State';
 
 export type Random0255 = Newtype<
   { readonly RANDOM0255: unique symbol },
@@ -22,7 +24,7 @@ export const prismRandom0255 = prismNonNegativeInteger.compose(
 export const castRandom0255 = castToPrism(prismRandom0255)(
   (n) => `Invalid cast, castRandom0255 is not in range 0-255: ${n}`
 );
-export const random0255 = pipe(
+export const random0255 = (random: State<RngState, Random01>) => pipe(
   random,
   ST.map(
     flow(prismRandom01.reverseGet, (n) => Math.floor(n * 256), castRandom0255)

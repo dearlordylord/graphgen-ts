@@ -5,6 +5,7 @@ import * as A from 'fp-ts/Array';
 import { v4 } from 'uuid';
 import { prismRandom0255, random0255 } from '../rng/random255';
 import { RngState } from '@firfi/graphgen/types';
+import { Random01 } from '@firfi/utils/rng';
 
 export type AnonymizedIdentityState = {
   identityMap: IdentityMap;
@@ -12,7 +13,7 @@ export type AnonymizedIdentityState = {
 };
 export const getRandomIdentityForNumber = (
   id: number
-): State<AnonymizedIdentityState, string> =>
+) => (random: State<RngState, Random01>): State<AnonymizedIdentityState, string> =>
   flow(
     ST.gets(({ identityMap, rng }) => {
       const existing = identityMap[id];
@@ -25,7 +26,7 @@ export const getRandomIdentityForNumber = (
         Array.from({
           length: 16,
         }),
-        A.map(() => random0255),
+        A.map(() => random0255(random)),
         A.sequence(ST.Applicative),
         apply(rng)
       );
